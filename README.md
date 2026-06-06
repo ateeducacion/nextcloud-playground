@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://ateeducacion.github.io/nextcloud-playground/">
+  <a href="https://ateeducacion.github.io/nextcloud-playground/" target="_blank" rel="noopener noreferrer">
     <img src="assets/playground-preview-button.svg" alt="Try it in Playground" width="224">
   </a>
 </p>
