@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { buildZipExtractScript } from "../src/runtime/install-script.js";
 import {
   buildDefaultBlueprint,
   buildEffectivePlaygroundConfig,
@@ -130,6 +131,36 @@ describe("installApp step", () => {
     assert.equal(bp.steps[0].step, "installApp");
     assert.equal(bp.steps[0].appId, "exelearning");
     assert.equal(bp.steps[0].url, "https://example.com/exelearning.zip");
+  });
+});
+
+describe("buildZipExtractScript", () => {
+  const script = buildZipExtractScript(
+    "exelearning",
+    "/tmp/exelearning-install.zip",
+    "/tmp/exelearning-stage",
+  );
+
+  it("extracts with PHP ZipArchive into apps/<appId>", () => {
+    assert.match(script, /new ZipArchive\(\)/);
+    assert.match(script, /->extractTo\(\$stage\)/);
+    assert.match(script, /\/apps\/exelearning'/);
+    assert.match(script, /\$zipPath = '\/tmp\/exelearning-install\.zip'/);
+    assert.match(script, /\$stage = '\/tmp\/exelearning-stage'/);
+  });
+
+  it("declares the sentinel contract (NO_ZIP_EXT / INSTALL_OK / INSTALL_ERR)", () => {
+    assert.match(script, /return 'NO_ZIP_EXT'/);
+    assert.match(script, /return 'INSTALL_OK ' \. \$count/);
+    assert.match(script, /INSTALL_ERR/);
+    // ext/zip is probed before use so the caller can fall back to JS.
+    assert.match(script, /class_exists\('ZipArchive'\)/);
+  });
+
+  it("escapes single quotes in identifiers to keep the PHP literal safe", () => {
+    const evil = buildZipExtractScript("a'b", "/tmp/x.zip", "/tmp/s");
+    assert.match(evil, /\/apps\/a\\'b'/);
+    assert.doesNotMatch(evil, /\/apps\/a'b'/);
   });
 });
 
