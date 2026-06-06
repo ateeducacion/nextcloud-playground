@@ -16,6 +16,12 @@
   </a>
 </p>
 
+<p align="center">
+  <a href="https://ateeducacion.github.io/nextcloud-playground/">
+    <img src="assets/playground-preview-button.svg" alt="Try it in Playground" width="224">
+  </a>
+</p>
+
 Nextcloud Playground runs [Nextcloud](https://nextcloud.com) entirely in the
 browser using WebAssembly, powered by [WordPress Playground](https://github.com/WordPress/wordpress-playground)'s
 `@php-wasm` runtime. Every page load boots a fresh Nextcloud instance backed by
