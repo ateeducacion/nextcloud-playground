@@ -4,7 +4,7 @@ import {
   writeEntriesToPhp,
 } from "../../lib/nextcloud-loader.js";
 import { NEXTCLOUD_ROOT } from "./bootstrap-paths.js";
-import { buildOccScript } from "./install-script.js";
+import { buildOccScript, buildZipExtractScript } from "./install-script.js";
 
 /**
  * Idempotent `mkdir -p` against the PHP VFS (mirrors bootstrap's ensureDir).
@@ -170,10 +170,7 @@ export async function executeBlueprintSteps({ php, blueprint, publish }) {
             continue;
           }
           publish(`Downloading app: ${appId}`, ratio);
-          // `let` (not const) so the large buffers can be released as soon as
-          // they are consumed — a big app (e.g. the ~70MB eXeLearning editor,
-          // thousands of files) is memory-heavy to extract into MEMFS, so we
-          // free the zip bytes and the entry array promptly to lower the peak.
+          // `let` so the compressed buffer can be released as soon as PHP has it.
           let bytes = await fetchWithProgress(url, (progress) => {
             if (progress?.ratio !== undefined) {
               publish(
@@ -182,21 +179,44 @@ export async function executeBlueprintSteps({ php, blueprint, publish }) {
               );
             }
           });
-          const allEntries = extractZipEntries(bytes);
-          bytes = null; // zip is decoded into allEntries; release ~download size
-          let appEntries = reRootEntriesToApp(allEntries) || allEntries;
-          const binary = await php.binary;
-          const fsHost = binary?.FS ? { FS: binary.FS } : php;
-          publish(
-            `Installing app ${appId} (${appEntries.length} files).`,
-            ratio,
+          // Hand the zip to PHP and extract it there with ZipArchive. libzip
+          // inflates + writes one entry at a time, so a big app (the ~70MB /
+          // 3000+ file eXeLearning editor) no longer needs the whole tree
+          // decompressed in JS at once — the JS path peaked at
+          // compressed + full-decompressed-tree + MEMFS copy and OOM'd /
+          // partially installed on constrained clients. The zip lives in MEMFS
+          // so the JS fallback below can read it back without re-downloading.
+          const tmpZip = `/tmp/${appId}-install.zip`;
+          const stage = `/tmp/${appId}-stage`;
+          await php.writeFile(tmpZip, bytes);
+          bytes = null; // released; PHP reads the zip from MEMFS
+          publish(`Installing app ${appId}.`, ratio);
+          const exRes = await php.run(
+            buildZipExtractScript(appId, tmpZip, stage),
           );
-          writeEntriesToPhp(
-            fsHost,
-            appEntries,
-            `${NEXTCLOUD_ROOT}/apps/${appId}`,
-          );
-          appEntries = null; // written to MEMFS; release before occ runs
+          const exOut = decoder.decode(exRes.bytes || new Uint8Array()).trim();
+          if (!exOut.includes("INSTALL_OK")) {
+            // ext/zip missing or extraction failed: fall back to the JS path,
+            // reading the zip back from MEMFS. This re-incurs the higher JS
+            // peak, but only when PHP extraction is unavailable.
+            publish(
+              `[warning] PHP extraction unavailable for ${appId} (${exOut.slice(0, 80)}); using JS fallback.`,
+              ratio,
+            );
+            const fallbackBytes = await php.readFile(tmpZip);
+            const allEntries = extractZipEntries(fallbackBytes);
+            const appEntries = reRootEntriesToApp(allEntries) || allEntries;
+            const binary = await php.binary;
+            const fsHost = binary?.FS ? { FS: binary.FS } : php;
+            writeEntriesToPhp(
+              fsHost,
+              appEntries,
+              `${NEXTCLOUD_ROOT}/apps/${appId}`,
+            );
+            try {
+              await php.run(`<?php @unlink('${tmpZip}');`);
+            } catch {}
+          }
           if (step.enable !== false) {
             publish(`Enabling app: ${appId}`, ratio);
             await occ(["occ", "app:enable", "--force", appId]);
