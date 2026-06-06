@@ -386,17 +386,47 @@ function rewriteHtmlDocument(html, scope) {
   return result;
 }
 
-async function rewriteScopedHtmlResponse(response, scope) {
+// WebDAV (remote.php/dav) multistatus responses embed resource paths as
+// <d:href> values. PHP runs unscoped (OC::$WEBROOT === ""), so Sabre emits
+// hrefs like "/remote.php/dav/files/admin/…". The browser's webdav client
+// (OC.webroot is rewritten to the scoped base) expects hrefs under
+// "/playground/<scope>/<runtime>/remote.php/dav/…"; when it strips its scoped
+// base from an unscoped href the resulting path no longer matches the request,
+// and @nextcloud/files throws "Root node does not match requested path".
+// Prefix the scoped base onto every root-absolute href, mirroring the HTML and
+// Location rewrites.
+function rewriteDavHrefs(xml, { scopeId, runtimeId }) {
+  const scopedBase = getScopedBasePath(scopeId, runtimeId);
+  return xml.replace(
+    /(<d:href>)([^<]*)(<\/d:href>)/giu,
+    (match, open, value, close) => {
+      if (!value || value.charAt(0) !== "/" || value.charAt(1) === "/") {
+        return match;
+      }
+      if (value === scopedBase || value.startsWith(`${scopedBase}/`)) {
+        return match;
+      }
+      return `${open}${scopedBase}${value}${close}`;
+    },
+  );
+}
+
+async function rewriteScopedBodyResponse(response, scope) {
   const contentType = response.headers.get("content-type") || "";
-  if (!/text\/html|application\/xhtml\+xml/iu.test(contentType)) {
+  const isHtml = /text\/html|application\/xhtml\+xml/iu.test(contentType);
+  const isXml = /\/xml\b|\+xml\b/iu.test(contentType);
+  if (!isHtml && !isXml) {
     return response;
   }
 
-  const html = await response.text();
+  const body = await response.text();
   const headers = new Headers(response.headers);
   headers.delete("content-length");
+  const rewritten = isHtml
+    ? rewriteHtmlDocument(body, scope)
+    : rewriteDavHrefs(body, scope);
 
-  return new Response(rewriteHtmlDocument(html, scope), {
+  return new Response(rewritten, {
     status: response.status,
     statusText: response.statusText,
     headers,
@@ -514,7 +544,7 @@ self.addEventListener("fetch", (event) => {
       scopeId,
       runtimeId,
     });
-    return rewriteScopedHtmlResponse(locationScopedResponse, {
+    return rewriteScopedBodyResponse(locationScopedResponse, {
       origin: url.origin,
       scopeId,
       runtimeId,
