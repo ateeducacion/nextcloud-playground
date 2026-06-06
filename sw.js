@@ -380,7 +380,14 @@ function rewriteHtmlDocument(html, scope) {
   //     they escape the Service Worker scope and 404. Prefix OC.webroot (which
   //     is correctly scoped) onto any same-tab root-absolute link not already
   //     under it.
-  const playgroundShim = `<script${nonceAttr}>(function(){try{Object.defineProperty(window,"parent",{get:function(){return window}})}catch(e){}try{document.addEventListener("click",function(e){if(e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;var a=e.target&&e.target.closest&&e.target.closest("a[href]");if(!a)return;var t=a.getAttribute("target");if(t&&t!=="_self")return;var h=a.getAttribute("href");if(!h||h.charAt(0)!=="/"||h.charAt(1)==="/")return;var w=(window.OC&&OC.webroot)||"";if(!w||h===w||h.indexOf(w+"/")===0)return;e.preventDefault();window.location.href=w+h},true)}catch(e){}})();</script>`;
+  // The parent===window override must apply ONLY to the top Nextcloud document
+  // (the one framed directly by remote.html). A nested iframe served below it —
+  // e.g. an app that embeds its own iframe and talks to it via
+  // window.parent.postMessage (the eXeLearning editor's EmbeddingBridge sends
+  // EXELEARNING_READY to window.parent and gates on window.parent !== window) —
+  // must keep its real parent, or the handshake posts to itself and the host
+  // hangs. Detect the top doc by checking the real parent is remote.html.
+  const playgroundShim = `<script${nonceAttr}>(function(){try{var n=false;try{n=!!(window.parent&&window.parent!==window&&/\\/remote\\.html(?:[?#]|$)/.test(window.parent.location.pathname));}catch(e){n=true;}if(n){Object.defineProperty(window,"parent",{get:function(){return window}})}}catch(e){}try{document.addEventListener("click",function(e){if(e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;var a=e.target&&e.target.closest&&e.target.closest("a[href]");if(!a)return;var t=a.getAttribute("target");if(t&&t!=="_self")return;var h=a.getAttribute("href");if(!h||h.charAt(0)!=="/"||h.charAt(1)==="/")return;var w=(window.OC&&OC.webroot)||"";if(!w||h===w||h.indexOf(w+"/")===0)return;e.preventDefault();window.location.href=w+h},true)}catch(e){}})();</script>`;
   result = result.replace(/<head([^>]*)>/iu, `<head$1>${playgroundShim}`);
 
   // Nextcloud computes OC.webroot from \OC::$WEBROOT, which is "" because the
