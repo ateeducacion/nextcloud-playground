@@ -68,8 +68,9 @@ function reRootEntriesToApp(entries) {
  *   - { step: "setConfig", key, value, app? }  → occ config:system:set | config:app:set
  *   - { step: "installApp", appId, url, enable? } → fetch ZIP, extract into
  *       apps/<appId>, then occ app:enable --force <appId>
- *   - { step: "writeFile", path, content, encoding? } → write a file into the
- *       instance (path relative to the Nextcloud root, or absolute)
+ *   - { step: "writeFile", path, content|url, encoding? } → write a file into
+ *       the instance (content inline, or fetched from url; path relative to the
+ *       Nextcloud root, or absolute)
  *   - { step: "runOcc", args: [...] }          → occ <args...>
  *
  * Each step is best-effort: a failing step is reported via publish() but does
@@ -202,13 +203,26 @@ export async function executeBlueprintSteps({ php, blueprint, publish }) {
           const target = path.startsWith("/")
             ? path
             : `${NEXTCLOUD_ROOT}/${path}`;
-          const raw = step.content ?? step.contents ?? "";
+          const url = String(step.url || "").trim();
           let bytes;
-          if (step.encoding === "base64") {
-            const binary = atob(String(raw).replace(/\s+/g, ""));
-            bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+          if (url) {
+            publish(`Downloading file: ${path}`, ratio);
+            bytes = await fetchWithProgress(url, (progress) => {
+              if (progress?.ratio !== undefined) {
+                publish(
+                  `Downloading ${path}: ${Math.round(progress.ratio * 100)}%`,
+                  ratio,
+                );
+              }
+            });
           } else {
-            bytes = new TextEncoder().encode(String(raw));
+            const raw = step.content ?? step.contents ?? "";
+            if (step.encoding === "base64") {
+              const binary = atob(String(raw).replace(/\s+/g, ""));
+              bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+            } else {
+              bytes = new TextEncoder().encode(String(raw));
+            }
           }
           publish(`Writing file: ${path}`, ratio);
           const lastSlash = target.lastIndexOf("/");

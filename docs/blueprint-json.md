@@ -217,12 +217,14 @@ https://zip-proxy.erseco.workers.dev/?repo=<owner/repo>&release=<tag>&asset=<fil
 ### `writeFile`
 
 Writes a file into the instance. `path` is resolved against the Nextcloud root
-(`/www/nextcloud`) unless it starts with `/`. `content` is UTF-8 text by default;
-set `"encoding": "base64"` for binary payloads. Parent directories are created
-as needed.
+(`/www/nextcloud`) unless it starts with `/`. The contents come from `content`
+(UTF-8 text, or base64 when `"encoding": "base64"`) or are fetched from `url`
+(handy for binary payloads too large to inline — the host must allow CORS).
+Parent directories are created as needed.
 
 ```json
 { "step": "writeFile", "path": "config/mimetypemapping.json", "content": "{\"elpx\":[\"application/vnd.exelearning.elpx\",\"application/zip\"]}" }
+{ "step": "writeFile", "path": "data/admin/files/sample.elpx", "url": "https://raw.githubusercontent.com/owner/repo/main/fixtures/sample.elpx" }
 ```
 
 Useful for registering a custom MIME type (write `config/mimetypemapping.json` +

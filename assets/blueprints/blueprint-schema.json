@@ -70,7 +70,7 @@
           "appId": { "type": "string" },
           "url": {
             "type": "string",
-            "description": "ZIP archive URL for installApp (e.g. a built Nextcloud app release)."
+            "description": "Source URL: the app ZIP for installApp, or the file contents for writeFile (CORS-enabled host required)."
           },
           "enable": {
             "type": "boolean",
