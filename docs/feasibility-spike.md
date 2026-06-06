@@ -10,7 +10,7 @@ serves its login page under php-wasm (PHP 8.3) with a posix polyfill and a small
 set of source patches. The remaining hard problem is **bundle size / browser
 memory**, addressed in Phase 2.
 
-The spike harness lives in [`spike/`](../spike/) (`run-spike.mjs` + `prepend.php`).
+The spike harness lives in [`spike/`](https://github.com/ateeducacion/nextcloud-playground/tree/main/spike) (`run-spike.mjs` + `prepend.php`).
 It runs headlessly with `@php-wasm/node`, mounting the extracted Nextcloud source
 over NODEFS, running `occ maintenance:install`, then requesting `status.php` and
 `/index.php/login`.
@@ -41,7 +41,7 @@ total: ~4.5s (NODEFS, warm)
 ### 1. posix polyfill (`auto_prepend_file`)
 The build is `--disable-posix`; Nextcloud calls `posix_getuid()` / `posix_getpwuid()`
 without guards. We stub the posix surface (fake `www-data`, uid 33) via an
-`auto_prepend_file`. See [`spike/prepend.php`](../spike/prepend.php). This is the
+`auto_prepend_file`. See [`spike/prepend.php`](https://github.com/ateeducacion/nextcloud-playground/blob/main/spike/prepend.php). This is the
 single most important file and becomes `src/runtime/php-prepend.js` in the real build.
 
 ### 2. Source patches (applied at build time, gated on `PHP_SAPI === 'wasm'`)

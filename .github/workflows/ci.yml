@@ -51,6 +51,9 @@ jobs:
       - name: Lint
         run: make lint
 
+      - name: Sync browser dependencies (vendor/)
+        run: npm run sync-browser-deps
+
       - name: Build worker bundle
         run: npm run build-worker
 
