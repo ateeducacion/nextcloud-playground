@@ -1,7 +1,7 @@
 site_name: Nextcloud Playground Docs
 site_description: Contributor and user documentation for Nextcloud Playground.
-site_url: https://erseco.github.io/nextcloud-playground/docs/
-repo_url: https://github.com/erseco/nextcloud-playground
+site_url: https://ateeducacion.github.io/nextcloud-playground/docs/
+repo_url: https://github.com/ateeducacion/nextcloud-playground
 edit_uri: edit/main/docs/
 docs_dir: docs
 site_dir: site

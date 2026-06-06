@@ -17,7 +17,7 @@ It is a sibling of the Moodle, Omeka S, and FacturaScripts playgrounds, and the
 ### Run it locally
 
 ```bash
-git clone https://github.com/erseco/nextcloud-playground.git
+git clone https://github.com/ateeducacion/nextcloud-playground.git
 cd nextcloud-playground
 make up
 ```

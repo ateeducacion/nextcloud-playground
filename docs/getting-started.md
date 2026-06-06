@@ -34,7 +34,7 @@ docs with MkDocs.)
 ### Quick start
 
 ```bash
-git clone https://github.com/erseco/nextcloud-playground.git
+git clone https://github.com/ateeducacion/nextcloud-playground.git
 cd nextcloud-playground
 make up
 ```
