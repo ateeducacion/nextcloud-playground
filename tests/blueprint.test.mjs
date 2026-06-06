@@ -99,8 +99,35 @@ describe("buildEffectivePlaygroundConfig", () => {
 describe("knownStepTypes", () => {
   it("includes the core provisioning steps", () => {
     const types = knownStepTypes();
-    for (const t of ["enableApp", "createUser", "setConfig", "runOcc"]) {
+    for (const t of [
+      "enableApp",
+      "createUser",
+      "setConfig",
+      "installApp",
+      "runOcc",
+    ]) {
       assert.ok(types.includes(t), `expected step type ${t}`);
     }
+  });
+});
+
+describe("installApp step", () => {
+  it("passes installApp fields through normalization unchanged", () => {
+    const bp = normalizeBlueprint(
+      {
+        steps: [
+          {
+            step: "installApp",
+            appId: "exelearning",
+            url: "https://example.com/exelearning.zip",
+          },
+        ],
+      },
+      baseConfig,
+    );
+    assert.equal(bp.steps.length, 1);
+    assert.equal(bp.steps[0].step, "installApp");
+    assert.equal(bp.steps[0].appId, "exelearning");
+    assert.equal(bp.steps[0].url, "https://example.com/exelearning.zip");
   });
 });

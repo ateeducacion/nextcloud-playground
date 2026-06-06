@@ -1,4 +1,42 @@
+import {
+  extractZipEntries,
+  fetchWithProgress,
+  writeEntriesToPhp,
+} from "../../lib/nextcloud-loader.js";
+import { NEXTCLOUD_ROOT } from "./bootstrap-paths.js";
 import { buildOccScript } from "./install-script.js";
+
+/**
+ * Re-root extracted ZIP entries to the app directory: the folder that contains
+ * `appinfo/info.xml`. `extractZipEntries` already strips a single common
+ * leading folder (so a GitHub source archive like `repo-branch/…` arrives with
+ * paths starting at `appinfo/…`), but an archive with several top-level entries
+ * keeps full paths. Locating `appinfo/info.xml` and slicing its prefix off works
+ * for both shapes. Returns null when no app manifest is found.
+ */
+function reRootEntriesToApp(entries) {
+  const marker = entries.find(
+    (entry) =>
+      entry.path === "appinfo/info.xml" ||
+      entry.path.endsWith("/appinfo/info.xml"),
+  );
+  if (!marker) {
+    return null;
+  }
+  const prefix = marker.path.slice(
+    0,
+    marker.path.length - "appinfo/info.xml".length,
+  );
+  if (!prefix) {
+    return entries;
+  }
+  return entries
+    .filter((entry) => entry.path.startsWith(prefix))
+    .map((entry) => ({
+      path: entry.path.slice(prefix.length),
+      data: entry.data,
+    }));
+}
 
 /**
  * Execute Nextcloud blueprint steps after install by translating each step to
@@ -11,6 +49,8 @@ import { buildOccScript } from "./install-script.js";
  *   - { step: "createGroup", group }           → occ group:add <group>
  *   - { step: "addUserToGroup", username, group } → occ group:adduser <group> <username>
  *   - { step: "setConfig", key, value, app? }  → occ config:system:set | config:app:set
+ *   - { step: "installApp", appId, url, enable? } → fetch ZIP, extract into
+ *       apps/<appId>, then occ app:enable --force <appId>
  *   - { step: "runOcc", args: [...] }          → occ <args...>
  *
  * Each step is best-effort: a failing step is reported via publish() but does
@@ -99,6 +139,41 @@ export async function executeBlueprintSteps({ php, blueprint, publish }) {
             ]);
           }
           break;
+        case "installApp": {
+          const appId = String(step.appId || step.app || "").trim();
+          const url = String(step.url || "").trim();
+          if (!appId || !url) {
+            publish("[warning] installApp requires both appId and url.", ratio);
+            continue;
+          }
+          publish(`Downloading app: ${appId}`, ratio);
+          const bytes = await fetchWithProgress(url, (progress) => {
+            if (progress?.ratio !== undefined) {
+              publish(
+                `Downloading app ${appId}: ${Math.round(progress.ratio * 100)}%`,
+                ratio,
+              );
+            }
+          });
+          const allEntries = extractZipEntries(bytes);
+          const appEntries = reRootEntriesToApp(allEntries) || allEntries;
+          const binary = await php.binary;
+          const fsHost = binary?.FS ? { FS: binary.FS } : php;
+          publish(
+            `Installing app ${appId} (${appEntries.length} files).`,
+            ratio,
+          );
+          writeEntriesToPhp(
+            fsHost,
+            appEntries,
+            `${NEXTCLOUD_ROOT}/apps/${appId}`,
+          );
+          if (step.enable !== false) {
+            publish(`Enabling app: ${appId}`, ratio);
+            await occ(["occ", "app:enable", "--force", appId]);
+          }
+          break;
+        }
         case "runOcc":
           publish(`Running occ ${(step.args || []).join(" ")}`, ratio);
           await occ(["occ", ...(step.args || []).map(String)]);
