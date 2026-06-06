@@ -62,6 +62,7 @@
               "addUserToGroup",
               "setConfig",
               "installApp",
+              "writeFile",
               "runOcc"
             ]
           },
@@ -74,6 +75,19 @@
           "enable": {
             "type": "boolean",
             "description": "installApp: enable the app after extracting it (default true)."
+          },
+          "path": {
+            "type": "string",
+            "description": "writeFile: target path, relative to the Nextcloud root or absolute."
+          },
+          "content": {
+            "type": "string",
+            "description": "writeFile: file contents (text, or base64 when encoding is set)."
+          },
+          "encoding": {
+            "type": "string",
+            "enum": ["utf8", "base64"],
+            "description": "writeFile: how `content` is encoded (default utf8)."
           },
           "username": { "type": "string" },
           "password": { "type": "string" },

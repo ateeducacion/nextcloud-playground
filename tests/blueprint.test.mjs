@@ -104,6 +104,7 @@ describe("knownStepTypes", () => {
       "createUser",
       "setConfig",
       "installApp",
+      "writeFile",
       "runOcc",
     ]) {
       assert.ok(types.includes(t), `expected step type ${t}`);
@@ -129,5 +130,26 @@ describe("installApp step", () => {
     assert.equal(bp.steps[0].step, "installApp");
     assert.equal(bp.steps[0].appId, "exelearning");
     assert.equal(bp.steps[0].url, "https://example.com/exelearning.zip");
+  });
+});
+
+describe("writeFile step", () => {
+  it("passes writeFile fields through normalization unchanged", () => {
+    const bp = normalizeBlueprint(
+      {
+        steps: [
+          {
+            step: "writeFile",
+            path: "config/mimetypemapping.json",
+            content: '{"elpx":["application/vnd.exelearning.elpx"]}',
+          },
+        ],
+      },
+      baseConfig,
+    );
+    assert.equal(bp.steps.length, 1);
+    assert.equal(bp.steps[0].step, "writeFile");
+    assert.equal(bp.steps[0].path, "config/mimetypemapping.json");
+    assert.match(bp.steps[0].content, /exelearning/);
   });
 });
