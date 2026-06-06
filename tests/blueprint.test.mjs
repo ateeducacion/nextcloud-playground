@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildZipExtractScript } from "../src/runtime/install-script.js";
+import {
+  buildCoreExtractScript,
+  buildZipExtractScript,
+} from "../src/runtime/install-script.js";
 import {
   buildDefaultBlueprint,
   buildEffectivePlaygroundConfig,
@@ -161,6 +164,38 @@ describe("buildZipExtractScript", () => {
     const evil = buildZipExtractScript("a'b", "/tmp/x.zip", "/tmp/s");
     assert.match(evil, /\/apps\/a\\'b'/);
     assert.doesNotMatch(evil, /\/apps\/a'b'/);
+  });
+});
+
+describe("buildCoreExtractScript", () => {
+  const script = buildCoreExtractScript(
+    "/tmp/nextcloud-core.zip",
+    "/tmp/nextcloud-core-stage",
+    "/www/nextcloud",
+  );
+
+  it("extracts the core with PHP ZipArchive into the target root", () => {
+    assert.match(script, /new ZipArchive\(\)/);
+    assert.match(script, /->extractTo\(\$stage\)/);
+    assert.match(script, /\$zipPath = '\/tmp\/nextcloud-core\.zip'/);
+    assert.match(script, /\$target = '\/www\/nextcloud'/);
+  });
+
+  it("descends into a lone wrapping folder, then moves it into place", () => {
+    assert.match(script, /count\(\$top\) === 1 && is_dir/);
+    assert.match(script, /@rename\(\$src, \$target\)/);
+  });
+
+  it("declares the sentinel contract and probes ext/zip", () => {
+    assert.match(script, /class_exists\('ZipArchive'\)/);
+    assert.match(script, /return 'NO_ZIP_EXT'/);
+    assert.match(script, /return 'INSTALL_OK ' \. \$count/);
+    assert.match(script, /INSTALL_ERR/);
+  });
+
+  it("escapes single quotes in paths to keep the PHP literal safe", () => {
+    const evil = buildCoreExtractScript("/tmp/a'b.zip", "/tmp/s", "/www/x");
+    assert.match(evil, /\/tmp\/a\\'b\.zip'/);
   });
 });
 
