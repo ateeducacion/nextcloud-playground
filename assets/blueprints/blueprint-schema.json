@@ -61,10 +61,20 @@
               "createGroup",
               "addUserToGroup",
               "setConfig",
+              "installApp",
               "runOcc"
             ]
           },
           "app": { "type": "string" },
+          "appId": { "type": "string" },
+          "url": {
+            "type": "string",
+            "description": "ZIP archive URL for installApp (e.g. a built Nextcloud app release)."
+          },
+          "enable": {
+            "type": "boolean",
+            "description": "installApp: enable the app after extracting it (default true)."
+          },
           "username": { "type": "string" },
           "password": { "type": "string" },
           "displayName": { "type": "string" },

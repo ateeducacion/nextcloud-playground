@@ -179,6 +179,41 @@ Creates a share for an existing path.
 `shareType` is typically `public` (link), `user`, or `group`. For `user`/`group`
 shares set `shareWith`; `permissions` defaults to read.
 
+### `installApp`
+
+Installs a Nextcloud app that is **not** part of the trimmed bundle by
+downloading a ZIP archive, extracting it into the apps directory, and enabling
+it. This is what lets an external app repository (e.g. `nextcloud-exelearning`)
+ship a blueprint that boots the playground with its own app pre-installed.
+
+```json
+{ "step": "installApp", "appId": "exelearning", "url": "https://github.com/exelearning/nextcloud-exelearning/releases/download/playground/exelearning.zip" }
+```
+
+- `url` must point to a ZIP whose contents include the app's `appinfo/info.xml`.
+  A single common leading folder is stripped automatically, so both a built
+  app ZIP (`exelearning/appinfo/…`) and a GitHub source archive
+  (`repo-branch/appinfo/…`) work.
+- Files are written into `apps/<appId>` inside the readonly core's (writable
+  MEMFS) apps path, so no `apps_paths` change is required.
+- After extraction the app is enabled with `occ app:enable --force <appId>`
+  (the `--force` bypasses the Nextcloud version requirement). Set
+  `"enable": false` to extract without enabling.
+
+The app **must** be a built artifact: source archives that rely on a compiled
+`js/` bundle won't render in the browser unless that bundle is included in the
+ZIP.
+
+The fetch happens cross-origin from the runtime worker, so the ZIP host **must**
+send `Access-Control-Allow-Origin`. `raw.githubusercontent.com` and GitHub Pages
+do; **GitHub release-asset downloads do not** (they redirect to Azure Blob
+without CORS headers). To serve a release asset, route it through a CORS proxy,
+e.g. the shared `zip-proxy` worker:
+
+```
+https://zip-proxy.erseco.workers.dev/?repo=<owner/repo>&release=<tag>&asset=<file>.zip
+```
+
 ### `runOcc`
 
 Escape hatch for any `occ` command without a dedicated step.
