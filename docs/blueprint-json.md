@@ -202,8 +202,17 @@ ship a blueprint that boots the playground with its own app pre-installed.
 
 The app **must** be a built artifact: source archives that rely on a compiled
 `js/` bundle won't render in the browser unless that bundle is included in the
-ZIP. The fetch happens cross-origin from the runtime worker, so the host serving
-the ZIP must allow CORS.
+ZIP.
+
+The fetch happens cross-origin from the runtime worker, so the ZIP host **must**
+send `Access-Control-Allow-Origin`. `raw.githubusercontent.com` and GitHub Pages
+do; **GitHub release-asset downloads do not** (they redirect to Azure Blob
+without CORS headers). To serve a release asset, route it through a CORS proxy,
+e.g. the shared `zip-proxy` worker:
+
+```
+https://zip-proxy.erseco.workers.dev/?repo=<owner/repo>&release=<tag>&asset=<file>.zip
+```
 
 ### `runOcc`
 
