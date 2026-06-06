@@ -96,7 +96,18 @@ function phpResponseToResponse(phpResponse) {
   if (phpResponse.headers) {
     for (const [key, values] of Object.entries(phpResponse.headers)) {
       for (const value of values) {
-        headers.append(key, value);
+        // Skip headers with an invalid name/value rather than letting a single
+        // malformed header (Headers.append() throws "Invalid name") abort the
+        // entire response — which would blank the whole page.
+        try {
+          headers.append(key, value);
+        } catch (error) {
+          try {
+            console.warn(
+              `[php-compat] skipping invalid response header "${key}": ${error?.message || error}`,
+            );
+          } catch {}
+        }
       }
     }
   }

@@ -115,6 +115,13 @@ async function getRuntimeState() {
 
   runtimeStatePromise = (async () => {
     const config = await loadPlaygroundConfig();
+    // The page is served from this worker's origin (e.g. localhost:8085 or
+    // ateeducacion.github.io). Nextcloud rejects untrusted hosts with a 400
+    // page, so register the real host in trusted_domains at install time.
+    try {
+      config.runtimeHost = self.location.host;
+      config.runtimeBaseUrl = `${self.location.origin}/`;
+    } catch {}
     const runtime =
       config.runtimes.find((entry) => entry.id === runtimeId) ||
       config.runtimes[0];
