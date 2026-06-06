@@ -2,12 +2,6 @@
 
 > Run a full Nextcloud server in the browser — no server required.
 
-<p align="center">
-  <a href="https://ateeducacion.github.io/nextcloud-playground/">
-    <img src="https://img.shields.io/badge/Try%20it-in%20your%20browser-0082c9?logo=nextcloud&logoColor=white&style=for-the-badge" alt="Try Nextcloud Playground in your browser">
-  </a>
-</p>
-
 [**Live demo**](https://ateeducacion.github.io/nextcloud-playground/) · [Documentation](docs/) · [Blueprints](docs/blueprint-json.md)
 
 <p align="center">
