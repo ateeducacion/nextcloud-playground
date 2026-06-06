@@ -307,6 +307,19 @@ function rewriteHtmlAttributeUrl(rawValue, { origin, scopeId, runtimeId }) {
     return decodedValue;
   }
 
+  // Genuinely relative URLs ("libs/app.js", "./x", "../y") are resolved by the
+  // browser against the document's own path. This rewriter only knows the
+  // origin, not that path, so rebasing them to the (scoped) webroot is wrong for
+  // any HTML served below the root — e.g. an app streaming a ZIP's index.html at
+  // /apps/<app>/asset/<id>/, whose "libs/x" must stay relative to that dir.
+  // Only root-relative ("/…") and absolute same-origin URLs need scoping.
+  if (
+    !decodedValue.startsWith("/")
+    && !/^[a-z][a-z0-9+.-]*:/iu.test(decodedValue)
+  ) {
+    return decodedValue;
+  }
+
   try {
     const absolute = new URL(decodedValue, origin);
     if (absolute.origin !== origin) {
