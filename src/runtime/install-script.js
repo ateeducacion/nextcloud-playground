@@ -88,7 +88,6 @@ $CONFIG['overwrite.cli.url'] = '${baseUrl}';
 $CONFIG['enabledPreviewProviders'] = [];
 $CONFIG['filelocking.enabled'] = false;
 $CONFIG['check_data_directory_permissions'] = false;
-$CONFIG['skeletondirectory'] = '';
 $CONFIG['loglevel'] = ${loglevel};
 $CONFIG['log_type'] = 'errorlog';
 $CONFIG['appstoreenabled'] = false;

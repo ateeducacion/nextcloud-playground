@@ -1,5 +1,5 @@
 {
-  "bundleVersion": "0.1.6",
+  "bundleVersion": "0.1.7",
   "defaultBlueprintUrl": "./assets/blueprints/default.blueprint.json",
   "phpCorsProxyUrl": null,
   "siteTitle": "Nextcloud Playground",

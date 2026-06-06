@@ -174,12 +174,20 @@ export function wrapPhpInstance(
 
       const scriptRelative =
         effectiveScriptPath.substring(resolvedWebRoot.length) || "/index.php";
+      // The Service Worker forwards the scoped base path it serves the iframe
+      // from. Prefix it onto SCRIPT_NAME / PHP_SELF / REQUEST_URI so Nextcloud
+      // computes OC::$WEBROOT with the scope and generates scoped URLs (incl.
+      // app-menu navigation hrefs). SCRIPT_FILENAME stays the VFS path so the
+      // correct script still runs.
+      const webrootPrefix = String(
+        (req.headers && req.headers["x-playground-webroot"]) || "",
+      ).replace(/\/+$/u, "");
       const serverVars = {
         DOCUMENT_ROOT: resolvedWebRoot,
         SCRIPT_FILENAME: effectiveScriptPath,
-        SCRIPT_NAME: scriptRelative,
-        PHP_SELF: scriptRelative,
-        REQUEST_URI: urlPath,
+        SCRIPT_NAME: `${webrootPrefix}${scriptRelative}`,
+        PHP_SELF: `${webrootPrefix}${scriptRelative}`,
+        REQUEST_URI: `${webrootPrefix}${urlPath}`,
         REQUEST_METHOD: req.method || "GET",
         QUERY_STRING: queryString,
         SERVER_NAME: parsedAbsoluteUrl.hostname,

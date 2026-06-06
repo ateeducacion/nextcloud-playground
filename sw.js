@@ -225,12 +225,20 @@ async function serializeRequest(request) {
   };
 }
 
-function buildPhpRequest(originalRequest, forwardedUrl) {
+function buildPhpRequest(originalRequest, forwardedUrl, webroot) {
   const init = {
     method: originalRequest.method,
     headers: new Headers(originalRequest.headers),
     redirect: "follow",
   };
+
+  // Tell the PHP worker the scoped base path the iframe is served from, so
+  // Nextcloud's server-side OC::$WEBROOT (and therefore every URL it generates
+  // — including the app-menu navigation hrefs baked into initial-state) is
+  // prefixed with the scope and stays inside the Service Worker's control.
+  if (webroot) {
+    init.headers.set("x-playground-webroot", webroot);
+  }
 
   if (!["GET", "HEAD"].includes(originalRequest.method)) {
     init.body = originalRequest.body;
@@ -482,7 +490,7 @@ self.addEventListener("fetch", (event) => {
 
       await broadcastToClients({ kind: "sw-debug", detail: `[sw-bridge] cache miss → worker: ${requestPath}` });
       const fresh = await forwardToPhpWorker({
-        request: buildPhpRequest(event.request, forwardedUrl),
+        request: buildPhpRequest(event.request, forwardedUrl, getScopedBasePath(scopeId, runtimeId)),
         runtimeId,
         scopeId,
       }).catch((error) => buildErrorResponse(String(error?.stack || error?.message || error)));
@@ -495,7 +503,7 @@ self.addEventListener("fetch", (event) => {
 
     await broadcastToClients({ kind: "sw-debug", detail: `[sw-bridge] → worker: ${event.request.method} ${requestPath}` });
     const response = await forwardToPhpWorker({
-      request: buildPhpRequest(event.request, forwardedUrl),
+      request: buildPhpRequest(event.request, forwardedUrl, getScopedBasePath(scopeId, runtimeId)),
       runtimeId,
       scopeId,
     }).catch((error) => buildErrorResponse(String(error?.stack || error?.message || error)));
