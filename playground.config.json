@@ -3,7 +3,7 @@
   "defaultBlueprintUrl": "./assets/blueprints/default.blueprint.json",
   "phpCorsProxyUrl": null,
   "siteTitle": "Nextcloud Playground",
-  "landingPath": "/index.php/apps/dashboard",
+  "landingPath": "/index.php/apps/files/files",
   "locale": "en",
   "timezone": "UTC",
   "autologin": true,

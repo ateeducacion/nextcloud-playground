@@ -6,7 +6,7 @@
     "description": "Baseline browser blueprint for Nextcloud Playground."
   },
   "debug": { "enabled": false },
-  "landingPage": "/index.php/login",
+  "landingPage": "/index.php/apps/files/files",
   "siteOptions": {
     "title": "Nextcloud Playground",
     "locale": "en",
@@ -18,5 +18,8 @@
     "email": "admin@example.com"
   },
   "apps": [],
-  "steps": []
+  "steps": [
+    { "step": "disableApp", "app": "firstrunwizard" },
+    { "step": "setConfig", "app": "core", "key": "whatsNewEnabled", "value": "no" }
+  ]
 }
