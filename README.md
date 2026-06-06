@@ -10,6 +10,12 @@
 
 [**Live demo**](https://ateeducacion.github.io/nextcloud-playground/) · [Documentation](docs/) · [Blueprints](docs/blueprint-json.md)
 
+<p align="center">
+  <a href="https://ateeducacion.github.io/nextcloud-playground/">
+    <img src=".github/screenshot.png" alt="Nextcloud Playground" width="800">
+  </a>
+</p>
+
 Nextcloud Playground runs [Nextcloud](https://nextcloud.com) entirely in the
 browser using WebAssembly, powered by [WordPress Playground](https://github.com/WordPress/wordpress-playground)'s
 `@php-wasm` runtime. Every page load boots a fresh Nextcloud instance backed by
@@ -71,7 +77,7 @@ the sibling playgrounds.
 
 ### Supported versions
 
-Multi-version: **Nextcloud 30 / 31 / 32** on PHP 8.3 (default 31). Versions are
+Multi-version: **Nextcloud 30 / 31 / 32 / 33** on PHP 8.3 (default 33). Versions are
 declared in [`src/shared/nextcloud-versions.js`](src/shared/nextcloud-versions.js).
 
 ## Blueprints
@@ -100,8 +106,8 @@ See [`docs/blueprint-json.md`](docs/blueprint-json.md) for all step types and
 
 ```bash
 make prepare     # sync browser deps + build the worker bundle
-make bundle      # build one Nextcloud bundle (default NC 31)
-make bundle-all  # build NC 30, 31 and 32
+make bundle      # build one Nextcloud bundle (default NC 33)
+make bundle-all  # build NC 30, 31, 32 and 33
 make serve       # serve at http://localhost:8085
 make test        # unit tests
 make test-e2e    # Playwright browser tests

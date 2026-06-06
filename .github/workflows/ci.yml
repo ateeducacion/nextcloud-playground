@@ -84,7 +84,7 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build Nextcloud 31 bundle
+      - name: Build Nextcloud default bundle (NC 33)
         run: make bundle
 
       - name: Install Playwright browser

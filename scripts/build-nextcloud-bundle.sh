@@ -6,13 +6,14 @@ set -eu
 # major version.
 #
 # Inputs (env):
-#   NC_RELEASE  release id to fetch (default "latest-31")
-#   NC_MAJOR    Nextcloud major version (default "31")
+#   NC_RELEASE  release id to fetch (default "latest-33")
+#   NC_MAJOR    Nextcloud major version (default "33")
 #
 # Outputs:
 #   assets/nextcloud/nextcloud-${MAJOR}/nextcloud-core-${MAJOR}.zip
 #   assets/manifests/nextcloud-${MAJOR}.json
-#   assets/manifests/latest.json (only when MAJOR is the default, 31)
+#   assets/manifests/latest.json (only when MAJOR is the default version per
+#   src/shared/nextcloud-versions.js)
 #
 # Unlike a FacturaScripts checkout, Nextcloud release tarballs ship pre-built:
 # vendor/ (3rdparty/), compiled JS (dist/) and l10n are already present, so we
@@ -21,8 +22,8 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 
-RELEASE=${NC_RELEASE:-latest-31}
-MAJOR=${NC_MAJOR:-31}
+RELEASE=${NC_RELEASE:-latest-33}
+MAJOR=${NC_MAJOR:-33}
 
 WORK_DIR=${WORK_DIR:-"$REPO_DIR/.cache/build-nextcloud"}
 STAGE_DIR="$WORK_DIR/stage"
@@ -141,8 +142,10 @@ node "$SCRIPT_DIR/generate-manifest.mjs" \
   --bundle "$BUNDLE_PATH" \
   --fileCount "$FILE_COUNT"
 
-# 8. The default major also publishes latest.json.
-if [ "$MAJOR" = "31" ]; then
+# 8. The default major (per src/shared/nextcloud-versions.js) also publishes
+#    latest.json.
+DEFAULT_MAJOR=$(node -e "import('$REPO_DIR/src/shared/nextcloud-versions.js').then(m=>process.stdout.write(m.defaultVersion().major))" 2>/dev/null || echo "33")
+if [ "$MAJOR" = "$DEFAULT_MAJOR" ]; then
   cp "$MANIFEST_PATH" "$MANIFEST_DIR/latest.json"
   echo "Copied manifest to $MANIFEST_DIR/latest.json" >&2
 fi

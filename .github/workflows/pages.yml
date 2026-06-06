@@ -41,7 +41,7 @@ jobs:
       - name: Prepare runtime assets
         run: make prepare
 
-      - name: Build Nextcloud bundles (30, 31, 32)
+      - name: Build Nextcloud bundles (30, 31, 32, 33)
         run: make bundle-all
 
       - name: Install docs dependencies

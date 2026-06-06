@@ -225,20 +225,12 @@ async function serializeRequest(request) {
   };
 }
 
-function buildPhpRequest(originalRequest, forwardedUrl, webroot) {
+function buildPhpRequest(originalRequest, forwardedUrl) {
   const init = {
     method: originalRequest.method,
     headers: new Headers(originalRequest.headers),
     redirect: "follow",
   };
-
-  // Tell the PHP worker the scoped base path the iframe is served from, so
-  // Nextcloud's server-side OC::$WEBROOT (and therefore every URL it generates
-  // — including the app-menu navigation hrefs baked into initial-state) is
-  // prefixed with the scope and stays inside the Service Worker's control.
-  if (webroot) {
-    init.headers.set("x-playground-webroot", webroot);
-  }
 
   if (!["GET", "HEAD"].includes(originalRequest.method)) {
     init.body = originalRequest.body;
@@ -366,8 +358,17 @@ function rewriteHtmlDocument(html, scope) {
       result.match(/<script[^>]+nonce=["']([^"']+)["']/iu) ||
       [])[1] || "";
   const nonceAttr = nonce ? ` nonce="${escapeHtml(nonce)}"` : "";
-  const parentOverride = `<script${nonceAttr}>try{Object.defineProperty(window,"parent",{get:()=>window})}catch(e){}</script>`;
-  result = result.replace(/<head([^>]*)>/iu, `<head$1>${parentOverride}`);
+  // Two playground shims (single nonce'd inline script):
+  //  1. parent === window, so Nextcloud's parent.location navigation stays in
+  //     the inner iframe.
+  //  2. A capture-phase click interceptor that re-scopes root-absolute links.
+  //     The app-menu navigation hrefs are rendered client-side from Nextcloud's
+  //     initial-state with an empty webroot (e.g. "/index.php/apps/files/"), so
+  //     they escape the Service Worker scope and 404. Prefix OC.webroot (which
+  //     is correctly scoped) onto any same-tab root-absolute link not already
+  //     under it.
+  const playgroundShim = `<script${nonceAttr}>(function(){try{Object.defineProperty(window,"parent",{get:function(){return window}})}catch(e){}try{document.addEventListener("click",function(e){if(e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;var a=e.target&&e.target.closest&&e.target.closest("a[href]");if(!a)return;var t=a.getAttribute("target");if(t&&t!=="_self")return;var h=a.getAttribute("href");if(!h||h.charAt(0)!=="/"||h.charAt(1)==="/")return;var w=(window.OC&&OC.webroot)||"";if(!w||h===w||h.indexOf(w+"/")===0)return;e.preventDefault();window.location.href=w+h},true)}catch(e){}})();</script>`;
+  result = result.replace(/<head([^>]*)>/iu, `<head$1>${playgroundShim}`);
 
   // Nextcloud computes OC.webroot from \OC::$WEBROOT, which is "" because the
   // PHP worker is served at SCRIPT_NAME=/index.php. But the iframe is actually
@@ -490,7 +491,7 @@ self.addEventListener("fetch", (event) => {
 
       await broadcastToClients({ kind: "sw-debug", detail: `[sw-bridge] cache miss → worker: ${requestPath}` });
       const fresh = await forwardToPhpWorker({
-        request: buildPhpRequest(event.request, forwardedUrl, getScopedBasePath(scopeId, runtimeId)),
+        request: buildPhpRequest(event.request, forwardedUrl),
         runtimeId,
         scopeId,
       }).catch((error) => buildErrorResponse(String(error?.stack || error?.message || error)));
@@ -503,7 +504,7 @@ self.addEventListener("fetch", (event) => {
 
     await broadcastToClients({ kind: "sw-debug", detail: `[sw-bridge] → worker: ${event.request.method} ${requestPath}` });
     const response = await forwardToPhpWorker({
-      request: buildPhpRequest(event.request, forwardedUrl, getScopedBasePath(scopeId, runtimeId)),
+      request: buildPhpRequest(event.request, forwardedUrl),
       runtimeId,
       scopeId,
     }).catch((error) => buildErrorResponse(String(error?.stack || error?.message || error)));

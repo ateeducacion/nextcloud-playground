@@ -183,6 +183,18 @@ export async function bootstrapNextcloud({
     await performAutologin(php, config, publish);
   }
 
+  // The skeleton (sample files) is copied to the user's home on first login but
+  // is not yet in the file cache, so the Files app shows an empty list. Scan it
+  // into the database so the sample files appear. Best-effort.
+  if (!skipInstall) {
+    publish("Indexing sample files.", 0.93);
+    try {
+      await php.run(
+        buildOccScript(["occ", "files:scan", config.admin.username]),
+      );
+    } catch {}
+  }
+
   const readyPath =
     blueprint.landingPage || config.landingPath || "/index.php/login";
 

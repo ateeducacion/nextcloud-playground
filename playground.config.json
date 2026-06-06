@@ -9,7 +9,7 @@
   "autologin": true,
   "resetOnVersionMismatch": true,
   "admin": { "username": "admin", "password": "admin", "email": "admin@example.com" },
-  "defaults": { "phpVersion": "8.3", "nextcloudVersion": "31" },
+  "defaults": { "phpVersion": "8.3", "nextcloudVersion": "33" },
   "runtimes": [
     {
       "id": "php83-nc30",
@@ -23,7 +23,7 @@
       "label": "PHP 8.3 + Nextcloud 31",
       "phpVersion": "8.3",
       "nextcloudVersion": "31",
-      "default": true
+      "default": false
     },
     {
       "id": "php83-nc32",
@@ -31,6 +31,13 @@
       "phpVersion": "8.3",
       "nextcloudVersion": "32",
       "default": false
+    },
+    {
+      "id": "php83-nc33",
+      "label": "PHP 8.3 + Nextcloud 33",
+      "phpVersion": "8.3",
+      "nextcloudVersion": "33",
+      "default": true
     }
   ]
 }
