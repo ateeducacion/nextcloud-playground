@@ -214,6 +214,22 @@ e.g. the shared `zip-proxy` worker:
 https://zip-proxy.erseco.workers.dev/?repo=<owner/repo>&release=<tag>&asset=<file>.zip
 ```
 
+### `writeFile`
+
+Writes a file into the instance. `path` is resolved against the Nextcloud root
+(`/www/nextcloud`) unless it starts with `/`. `content` is UTF-8 text by default;
+set `"encoding": "base64"` for binary payloads. Parent directories are created
+as needed.
+
+```json
+{ "step": "writeFile", "path": "config/mimetypemapping.json", "content": "{\"elpx\":[\"application/vnd.exelearning.elpx\",\"application/zip\"]}" }
+```
+
+Useful for registering a custom MIME type (write `config/mimetypemapping.json` +
+`config/mimetypealiases.json`, then `runOcc` `maintenance:mimetype:update-js` and
+`maintenance:mimetype:update-db`). To make a file show up in a user's Files view,
+write it under that user's data dir and follow with `runOcc` `files:scan <user>`.
+
 ### `runOcc`
 
 Escape hatch for any `occ` command without a dedicated step.

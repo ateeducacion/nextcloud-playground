@@ -69,6 +69,7 @@ const KNOWN_STEPS = new Set([
   "addUserToGroup",
   "setConfig",
   "installApp",
+  "writeFile",
   "runOcc",
 ]);
 

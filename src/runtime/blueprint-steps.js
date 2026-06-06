@@ -7,6 +7,23 @@ import { NEXTCLOUD_ROOT } from "./bootstrap-paths.js";
 import { buildOccScript } from "./install-script.js";
 
 /**
+ * Idempotent `mkdir -p` against the PHP VFS (mirrors bootstrap's ensureDir).
+ */
+async function ensurePhpDir(php, dirPath) {
+  const segments = dirPath.split("/").filter(Boolean);
+  let current = "";
+  for (const segment of segments) {
+    current = `${current}/${segment}`;
+    const about = await php.analyzePath(current);
+    if (!about?.exists) {
+      try {
+        await php.mkdir(current);
+      } catch {}
+    }
+  }
+}
+
+/**
  * Re-root extracted ZIP entries to the app directory: the folder that contains
  * `appinfo/info.xml`. `extractZipEntries` already strips a single common
  * leading folder (so a GitHub source archive like `repo-branch/…` arrives with
@@ -51,6 +68,8 @@ function reRootEntriesToApp(entries) {
  *   - { step: "setConfig", key, value, app? }  → occ config:system:set | config:app:set
  *   - { step: "installApp", appId, url, enable? } → fetch ZIP, extract into
  *       apps/<appId>, then occ app:enable --force <appId>
+ *   - { step: "writeFile", path, content, encoding? } → write a file into the
+ *       instance (path relative to the Nextcloud root, or absolute)
  *   - { step: "runOcc", args: [...] }          → occ <args...>
  *
  * Each step is best-effort: a failing step is reported via publish() but does
@@ -172,6 +191,32 @@ export async function executeBlueprintSteps({ php, blueprint, publish }) {
             publish(`Enabling app: ${appId}`, ratio);
             await occ(["occ", "app:enable", "--force", appId]);
           }
+          break;
+        }
+        case "writeFile": {
+          const path = String(step.path || "").trim();
+          if (!path) {
+            publish("[warning] writeFile requires a path.", ratio);
+            continue;
+          }
+          const target = path.startsWith("/")
+            ? path
+            : `${NEXTCLOUD_ROOT}/${path}`;
+          const raw = step.content ?? step.contents ?? "";
+          let bytes;
+          if (step.encoding === "base64") {
+            const binary = atob(String(raw).replace(/\s+/g, ""));
+            bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+          } else {
+            bytes = new TextEncoder().encode(String(raw));
+          }
+          publish(`Writing file: ${path}`, ratio);
+          const lastSlash = target.lastIndexOf("/");
+          await ensurePhpDir(
+            php,
+            lastSlash > 0 ? target.slice(0, lastSlash) : "/",
+          );
+          await php.writeFile(target, bytes);
           break;
         }
         case "runOcc":
