@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "blueprint-schema.json",
+  "title": "Nextcloud Playground Blueprint",
+  "description": "Declarative configuration for provisioning a Nextcloud Playground instance at boot.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "$schema": { "type": "string" },
+    "meta": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "author": { "type": "string" },
+        "description": { "type": "string" }
+      }
+    },
+    "debug": {
+      "type": "object",
+      "properties": { "enabled": { "type": "boolean" } }
+    },
+    "landingPage": {
+      "type": "string",
+      "description": "Path to open after boot, e.g. /index.php/apps/dashboard or /index.php/login."
+    },
+    "siteOptions": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "locale": { "type": "string" },
+        "timezone": { "type": "string" }
+      }
+    },
+    "admin": {
+      "type": "object",
+      "description": "Admin account created by occ maintenance:install.",
+      "properties": {
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "email": { "type": "string" }
+      }
+    },
+    "apps": {
+      "type": "array",
+      "description": "Shorthand for enabling bundled apps; each entry expands to an enableApp step.",
+      "items": { "type": "string" }
+    },
+    "steps": {
+      "type": "array",
+      "description": "Provisioning steps executed (in order) after install.",
+      "items": {
+        "type": "object",
+        "required": ["step"],
+        "properties": {
+          "step": {
+            "type": "string",
+            "enum": [
+              "enableApp",
+              "disableApp",
+              "createUser",
+              "createGroup",
+              "addUserToGroup",
+              "setConfig",
+              "runOcc"
+            ]
+          },
+          "app": { "type": "string" },
+          "username": { "type": "string" },
+          "password": { "type": "string" },
+          "displayName": { "type": "string" },
+          "email": { "type": "string" },
+          "groups": { "type": "array", "items": { "type": "string" } },
+          "group": { "type": "string" },
+          "key": { "type": "string" },
+          "value": {},
+          "args": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

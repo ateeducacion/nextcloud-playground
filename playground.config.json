@@ -1,0 +1,36 @@
+{
+  "bundleVersion": "0.1.5",
+  "defaultBlueprintUrl": "./assets/blueprints/default.blueprint.json",
+  "phpCorsProxyUrl": null,
+  "siteTitle": "Nextcloud Playground",
+  "landingPath": "/index.php/apps/dashboard",
+  "locale": "en",
+  "timezone": "UTC",
+  "autologin": true,
+  "resetOnVersionMismatch": true,
+  "admin": { "username": "admin", "password": "admin", "email": "admin@example.com" },
+  "defaults": { "phpVersion": "8.3", "nextcloudVersion": "31" },
+  "runtimes": [
+    {
+      "id": "php83-nc30",
+      "label": "PHP 8.3 + Nextcloud 30",
+      "phpVersion": "8.3",
+      "nextcloudVersion": "30",
+      "default": false
+    },
+    {
+      "id": "php83-nc31",
+      "label": "PHP 8.3 + Nextcloud 31",
+      "phpVersion": "8.3",
+      "nextcloudVersion": "31",
+      "default": true
+    },
+    {
+      "id": "php83-nc32",
+      "label": "PHP 8.3 + Nextcloud 32",
+      "phpVersion": "8.3",
+      "nextcloudVersion": "32",
+      "default": false
+    }
+  ]
+}

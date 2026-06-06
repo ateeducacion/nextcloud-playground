@@ -1,0 +1,30 @@
+site_name: Nextcloud Playground Docs
+site_description: Contributor and user documentation for Nextcloud Playground.
+site_url: https://erseco.github.io/nextcloud-playground/docs/
+repo_url: https://github.com/erseco/nextcloud-playground
+edit_uri: edit/main/docs/
+docs_dir: docs
+site_dir: site
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Development: development.md
+  - blueprint.json: blueprint-json.md
+  - Known issues: KNOWN-ISSUES.md
+  - Feasibility spike: feasibility-spike.md
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true

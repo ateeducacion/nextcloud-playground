@@ -1,0 +1,22 @@
+{
+  "$schema": "./blueprint-schema.json",
+  "meta": {
+    "title": "Default Nextcloud Playground Blueprint",
+    "author": "nextcloud-playground",
+    "description": "Baseline browser blueprint for Nextcloud Playground."
+  },
+  "debug": { "enabled": false },
+  "landingPage": "/index.php/login",
+  "siteOptions": {
+    "title": "Nextcloud Playground",
+    "locale": "en",
+    "timezone": "UTC"
+  },
+  "admin": {
+    "username": "admin",
+    "password": "admin",
+    "email": "admin@example.com"
+  },
+  "apps": [],
+  "steps": []
+}

@@ -1,0 +1,17 @@
+node_modules/
+.playwright-mcp/
+.playwright/
+.cache/
+dist/
+site/
+playwright-report/
+test-results/
+.venv/
+vendor/
+.DS_Store
+assets/nextcloud/*
+!assets/nextcloud/.gitkeep
+assets/manifests/*
+!assets/manifests/.gitkeep
+.omc/
+outputs/
