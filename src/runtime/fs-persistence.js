@@ -80,6 +80,30 @@ export async function clearOpcacheJournal(phpVersion) {
 }
 
 /**
+ * Replay the journal, tolerating ops that can't be applied to a fresh FS so a
+ * single bad op never bricks the reload. A dangling op can occur when a CREATE
+ * was never journaled but a later delete (in another runtime) was — leaving a
+ * dangling unlink that throws against the fresh MEMFS. Fast path replays the
+ * whole batch; on any failure, replay op-by-op and skip the ones that throw (a
+ * failed unlink just means the file is already gone, which is the intended end
+ * state).
+ */
+function replayResilient(rawPhp, ops) {
+  if (!ops || ops.length === 0) return;
+  try {
+    replayFSJournal(rawPhp, ops);
+  } catch {
+    for (const op of ops) {
+      try {
+        replayFSJournal(rawPhp, [op]);
+      } catch {
+        // Skip un-appliable op.
+      }
+    }
+  }
+}
+
+/**
  * Replays the persisted FS journals onto a fresh PHP instance, then starts
  * journaling new changes back to IndexedDB.
  *
@@ -134,13 +158,9 @@ export async function initFsPersistence(rawPhp, scopeId, phpVersion) {
   // OPcache ops are replayed first so PHP finds the bytecode before any script runs.
   if (opcacheDb) {
     const savedOpcacheOps = await loadOps(opcacheDb);
-    if (savedOpcacheOps.length > 0) {
-      replayFSJournal(rawPhp, savedOpcacheOps);
-    }
+    replayResilient(rawPhp, savedOpcacheOps);
   }
 
   const savedPersistOps = await loadOps(persistDb);
-  if (savedPersistOps.length > 0) {
-    replayFSJournal(rawPhp, savedPersistOps);
-  }
+  replayResilient(rawPhp, savedPersistOps);
 }
