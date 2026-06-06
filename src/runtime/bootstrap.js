@@ -164,19 +164,34 @@ export async function bootstrapNextcloud({
       await php.run(buildOccScript(["occ", "background:webcron"]));
     } catch {}
 
-    await writePlaygroundState(php, {
-      manifestVersion,
-      runtimeId,
-      installedAt: new Date().toISOString(),
-      admin: { username: config.admin.username },
-    });
+    // The "installed" marker is written AFTER the blueprint steps run (below),
+    // not here: a step like installApp can fail mid-extraction (e.g. a large
+    // app exhausting MEMFS). Recording success only once those steps complete
+    // means a partial install is not cached as done and is retried next boot.
   } else {
     publish("Existing install matches bundle version. Skipping install.", 0.68);
   }
 
+  let blueprintResult = { executed: 0, criticalFailure: false };
   if (blueprint.steps.length > 0) {
     publish("Applying blueprint steps.", 0.78);
-    await executeBlueprintSteps({ php, blueprint, publish });
+    blueprintResult = await executeBlueprintSteps({ php, blueprint, publish });
+  }
+
+  if (!skipInstall) {
+    if (blueprintResult.criticalFailure) {
+      publish(
+        "[warning] A critical blueprint step failed; not caching the install so it is retried on the next reload.",
+        0.92,
+      );
+    } else {
+      await writePlaygroundState(php, {
+        manifestVersion,
+        runtimeId,
+        installedAt: new Date().toISOString(),
+        admin: { username: config.admin.username },
+      });
+    }
   }
 
   if (config.autologin) {
