@@ -84,6 +84,9 @@ export async function executeBlueprintSteps({ php, blueprint, publish }) {
 
   const decoder = new TextDecoder();
   let executed = 0;
+  // Set when a step that the instance can't work without (currently installApp)
+  // fails. The caller uses this to avoid caching a partial install as "done".
+  let criticalFailure = false;
 
   async function occ(argv, env = {}) {
     const res = await php.run(buildOccScript(argv, env));
@@ -167,7 +170,11 @@ export async function executeBlueprintSteps({ php, blueprint, publish }) {
             continue;
           }
           publish(`Downloading app: ${appId}`, ratio);
-          const bytes = await fetchWithProgress(url, (progress) => {
+          // `let` (not const) so the large buffers can be released as soon as
+          // they are consumed — a big app (e.g. the ~70MB eXeLearning editor,
+          // thousands of files) is memory-heavy to extract into MEMFS, so we
+          // free the zip bytes and the entry array promptly to lower the peak.
+          let bytes = await fetchWithProgress(url, (progress) => {
             if (progress?.ratio !== undefined) {
               publish(
                 `Downloading app ${appId}: ${Math.round(progress.ratio * 100)}%`,
@@ -176,7 +183,8 @@ export async function executeBlueprintSteps({ php, blueprint, publish }) {
             }
           });
           const allEntries = extractZipEntries(bytes);
-          const appEntries = reRootEntriesToApp(allEntries) || allEntries;
+          bytes = null; // zip is decoded into allEntries; release ~download size
+          let appEntries = reRootEntriesToApp(allEntries) || allEntries;
           const binary = await php.binary;
           const fsHost = binary?.FS ? { FS: binary.FS } : php;
           publish(
@@ -188,6 +196,7 @@ export async function executeBlueprintSteps({ php, blueprint, publish }) {
             appEntries,
             `${NEXTCLOUD_ROOT}/apps/${appId}`,
           );
+          appEntries = null; // written to MEMFS; release before occ runs
           if (step.enable !== false) {
             publish(`Enabling app: ${appId}`, ratio);
             await occ(["occ", "app:enable", "--force", appId]);
@@ -244,8 +253,11 @@ export async function executeBlueprintSteps({ php, blueprint, publish }) {
       executed++;
     } catch (err) {
       publish(`[warning] Step "${name}" failed: ${err?.message || err}`, ratio);
+      if (name === "installApp") {
+        criticalFailure = true;
+      }
     }
   }
 
-  return { executed };
+  return { executed, criticalFailure };
 }
