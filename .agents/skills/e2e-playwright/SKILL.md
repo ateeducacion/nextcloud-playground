@@ -65,8 +65,9 @@ reach into the playground iframe and wait for a real selector.
 | `#side-panel` | Side panel; `is-collapsed` class when closed. |
 | `#phpinfo-tab` / `#phpinfo-frame` | phpinfo panel (`srcdoc` matches `/PHP Version/`). |
 | `#blueprint-tab` / `#blueprint-textarea` | Blueprint editor; value reflects the active blueprint JSON. |
-| `#settings-button` / `#settings-popover` | Settings popover (`is-open`). |
-| `#settings-php-version option` | PHP-version options (count > 0). |
+| `#runtime-id-value` | Runtime ID chip text; `not.toHaveText("-")` ⇒ shell ready. |
+| `#info-runtime-version option` | Version (PHP + Nextcloud) options in the Info panel (count > 0). |
+| `#config-apply` / `#config-warning` | Apply &amp; Reset button + data-loss warning; both hidden until the version selection is dirty. |
 
 ## Applying a blueprint in a test
 
