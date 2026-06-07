@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
+const require = createRequire(import.meta.url);
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoDir = resolvePath(scriptDir, "..");
 
@@ -59,8 +61,10 @@ const stripUnusedPhpVersions = {
   },
 };
 
-const ICU_DATA_URL =
-  "https://unpkg.com/@php-wasm/web@3.1.36/shared/icu.dat";
+const phpWasmWebPackage = JSON.parse(
+  readFileSync(require.resolve("@php-wasm/web/package.json"), "utf8"),
+);
+const ICU_DATA_URL = `https://unpkg.com/@php-wasm/web@${phpWasmWebPackage.version}/shared/icu.dat`;
 const phpWasmIcuDataPlugin = {
   name: "php-wasm-icu-data",
   setup(b) {
