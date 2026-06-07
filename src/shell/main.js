@@ -6,7 +6,11 @@ import {
   resolveBlueprintForShell,
 } from "../shared/blueprint.js";
 import { getDefaultRuntime, loadPlaygroundConfig } from "../shared/config.js";
-import { hasBlueprintUrlOverride, resolveRemoteUrl } from "../shared/paths.js";
+import {
+  blueprintSourceKey,
+  hasBlueprintUrlOverride,
+  resolveRemoteUrl,
+} from "../shared/paths.js";
 import { createShellChannel } from "../shared/protocol.js";
 import {
   clearScopeSession,
@@ -58,7 +62,7 @@ let activeBlueprint;
 let remoteFrameBooted = false;
 let uiLocked = true;
 let remoteReloadToken = 0;
-let pendingCleanBoot = hasBlueprintUrlOverride(window.location.href);
+let pendingCleanBoot = false;
 let latestPhpInfoHtml = "";
 const CONTROL_RELOAD_KEY = `nextcloud-playground:${scopeId}:sw-controlled`;
 
@@ -482,6 +486,19 @@ async function main() {
   config = await loadPlaygroundConfig();
   activeBlueprint = await resolveBlueprintForShell(scopeId, config);
   updateBlueprintTextarea();
+
+  // Reset the persisted env when the blueprint changed since the last boot in
+  // this tab: a different blueprint must install fresh, not replay the previous
+  // env (which the install gate would otherwise reuse). Reloading the same
+  // blueprint keeps the data; a different tab is already clean (per-tab scopeId).
+  const blueprintKey = blueprintSourceKey(window.location.href);
+  const blueprintStoreKey = `blueprint-source:${scopeId}`;
+  const previousBlueprintKey = window.sessionStorage.getItem(blueprintStoreKey);
+  if (previousBlueprintKey !== null && previousBlueprintKey !== blueprintKey) {
+    pendingCleanBoot = true;
+  }
+  window.sessionStorage.setItem(blueprintStoreKey, blueprintKey);
+
   const previous = loadSessionState(scopeId);
   const defaultRuntime = getDefaultRuntime(config);
   const preferredPath =
