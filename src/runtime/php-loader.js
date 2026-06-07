@@ -109,12 +109,14 @@ export function createPhpRuntime(
       if (scopeId) {
         const { clearJournal, clearOpcacheJournal, initFsPersistence } =
           await import("./fs-persistence.js");
+        // On a clean boot (reset / blueprint change), wipe the old journals
+        // first; then ALWAYS start journaling so the fresh env persists on later
+        // reloads (a same-blueprint reload then reuses it, no reinstall).
         if (forceCleanBoot) {
           await clearJournal(scopeId);
           await clearOpcacheJournal(resolvedPhpVersion);
-        } else {
-          await initFsPersistence(php, scopeId, resolvedPhpVersion);
         }
+        await initFsPersistence(php, scopeId, resolvedPhpVersion);
       }
 
       // The default auto_prepend_file at /internal/shared/auto_prepend_file.php
