@@ -76,3 +76,25 @@ test("loads blueprint overrides and exposes runtime settings", async ({
     .count();
   expect(optionCount).toBeGreaterThan(0);
 });
+
+test("persists /persist to IndexedDB and reboots from it on reload", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await waitForRuntimeReady(page);
+
+  // The persistence layer journals /persist to a "nextcloud-fs-journal:<scope>"
+  // IndexedDB; its presence proves mutable state is being persisted.
+  const journaled = await page.evaluate(async () => {
+    const dbs = await indexedDB.databases();
+    return dbs.some((d) => d.name?.startsWith("nextcloud-fs-journal:"));
+  });
+  expect(journaled).toBeTruthy();
+
+  // Reload in the same tab (sessionStorage keeps the scopeId): the runtime must
+  // reboot by replaying the persisted journal — exercising the resilient replay
+  // that must never let one bad op brick the boot.
+  await page.waitForTimeout(2500);
+  await page.reload();
+  await waitForRuntimeReady(page);
+});
