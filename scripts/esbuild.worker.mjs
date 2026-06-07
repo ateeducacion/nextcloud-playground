@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -78,6 +78,8 @@ const phpWasmIcuDataPlugin = {
     }));
   },
 };
+
+rmSync(resolvePath(repoDir, "dist"), { force: true, recursive: true });
 
 await build({
   entryPoints: ["php-worker.js"],
