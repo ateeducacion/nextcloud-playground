@@ -63,6 +63,7 @@
               "setConfig",
               "installApp",
               "writeFile",
+              "unzip",
               "runOcc"
             ]
           },
@@ -70,7 +71,11 @@
           "appId": { "type": "string" },
           "url": {
             "type": "string",
-            "description": "Source URL: the app ZIP for installApp, or the file contents for writeFile (CORS-enabled host required)."
+            "description": "Source URL: the app ZIP for installApp, the file contents for writeFile, or the archive for unzip (CORS-enabled host required)."
+          },
+          "destination": {
+            "type": "string",
+            "description": "unzip: target directory for the extracted archive, relative to the Nextcloud root or absolute. A single top-level wrapper folder in the archive is stripped."
           },
           "enable": {
             "type": "boolean",

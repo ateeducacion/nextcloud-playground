@@ -4,7 +4,11 @@ import {
   writeEntriesToPhp,
 } from "../../lib/nextcloud-loader.js";
 import { NEXTCLOUD_ROOT } from "./bootstrap-paths.js";
-import { buildOccScript, buildZipExtractScript } from "./install-script.js";
+import {
+  buildOccScript,
+  buildUnzipScript,
+  buildZipExtractScript,
+} from "./install-script.js";
 
 /**
  * Idempotent `mkdir -p` against the PHP VFS (mirrors bootstrap's ensureDir).
@@ -71,6 +75,11 @@ function reRootEntriesToApp(entries) {
  *   - { step: "writeFile", path, content|url, encoding? } → write a file into
  *       the instance (content inline, or fetched from url; path relative to the
  *       Nextcloud root, or absolute)
+ *   - { step: "unzip", url, destination }      → fetch a ZIP and extract it into
+ *       destination (relative to the Nextcloud root, or absolute), stripping a
+ *       single top-level wrapper folder. Overlays a standalone bundle (e.g. the
+ *       eXeLearning static editor) into an already-installed app, mirroring
+ *       moodle-playground's editor overlay.
  *   - { step: "runOcc", args: [...] }          → occ <args...>
  *
  * Each step is best-effort: a failing step is reported via publish() but does
@@ -260,6 +269,59 @@ export async function executeBlueprintSteps({ php, blueprint, publish }) {
             lastSlash > 0 ? target.slice(0, lastSlash) : "/",
           );
           await php.writeFile(target, bytes);
+          break;
+        }
+        case "unzip": {
+          const destRaw = String(step.destination || step.path || "").trim();
+          const url = String(step.url || step?.data?.url || "").trim();
+          if (!destRaw || !url) {
+            publish("[warning] unzip requires a destination and a url.", ratio);
+            continue;
+          }
+          const destination = destRaw.startsWith("/")
+            ? destRaw
+            : `${NEXTCLOUD_ROOT}/${destRaw}`;
+          publish(`Downloading archive: ${destRaw}`, ratio);
+          // `let` so the compressed buffer is released as soon as PHP has it.
+          let bytes = await fetchWithProgress(url, (progress) => {
+            if (progress?.ratio !== undefined) {
+              publish(
+                `Downloading ${destRaw}: ${Math.round(progress.ratio * 100)}%`,
+                ratio,
+              );
+            }
+          });
+          // Same low-memory path as installApp: hand the zip to PHP and extract
+          // it there with ZipArchive (one entry at a time) so a big bundle like
+          // the ~70MB / 3000+ file eXeLearning editor doesn't OOM constrained
+          // clients. The zip stays in MEMFS so the JS fallback can read it back.
+          const tmpZip = `/tmp/unzip-${i}.zip`;
+          const stage = `/tmp/unzip-${i}-stage`;
+          await php.writeFile(tmpZip, bytes);
+          bytes = null; // released; PHP reads the zip from MEMFS
+          publish(`Extracting archive to ${destRaw}.`, ratio);
+          const exRes = await php.run(
+            buildUnzipScript(tmpZip, stage, destination),
+          );
+          const exOut = decoder.decode(exRes.bytes || new Uint8Array()).trim();
+          if (!exOut.includes("UNZIP_OK")) {
+            // ext/zip missing or extraction failed: fall back to the JS path,
+            // reading the zip back from MEMFS. extractZipEntries strips a single
+            // common leading folder (the editor's "static/"), matching the PHP
+            // extractor above.
+            publish(
+              `[warning] PHP extraction unavailable for ${destRaw} (${exOut.slice(0, 80)}); using JS fallback.`,
+              ratio,
+            );
+            const fallbackBytes = await php.readFile(tmpZip);
+            const entries = extractZipEntries(fallbackBytes);
+            const binary = await php.binary;
+            const fsHost = binary?.FS ? { FS: binary.FS } : php;
+            writeEntriesToPhp(fsHost, entries, destination);
+            try {
+              await php.run(`<?php @unlink('${tmpZip}');`);
+            } catch {}
+          }
           break;
         }
         case "runOcc":

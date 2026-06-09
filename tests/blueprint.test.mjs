@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   buildCoreExtractScript,
+  buildUnzipScript,
   buildZipExtractScript,
 } from "../src/runtime/install-script.js";
 import {
@@ -196,6 +197,65 @@ describe("buildCoreExtractScript", () => {
   it("escapes single quotes in paths to keep the PHP literal safe", () => {
     const evil = buildCoreExtractScript("/tmp/a'b.zip", "/tmp/s", "/www/x");
     assert.match(evil, /\/tmp\/a\\'b\.zip'/);
+  });
+});
+
+describe("buildUnzipScript", () => {
+  const script = buildUnzipScript(
+    "/tmp/unzip-0.zip",
+    "/tmp/unzip-0-stage",
+    "/www/nextcloud/apps/exelearning/js/editor",
+  );
+
+  it("extracts with PHP ZipArchive into the destination", () => {
+    assert.match(script, /new ZipArchive\(\)/);
+    assert.match(script, /->extractTo\(\$stage\)/);
+    assert.match(script, /\$zipPath = '\/tmp\/unzip-0\.zip'/);
+    assert.match(
+      script,
+      /\$target = '\/www\/nextcloud\/apps\/exelearning\/js\/editor'/,
+    );
+  });
+
+  it("strips a single top-level wrapper folder, then moves it into place", () => {
+    assert.match(script, /count\(\$top\) === 1 && is_dir/);
+    assert.match(script, /@rename\(\$src, \$target\)/);
+  });
+
+  it("declares the sentinel contract (NO_ZIP_EXT / UNZIP_OK / UNZIP_ERR)", () => {
+    assert.match(script, /class_exists\('ZipArchive'\)/);
+    assert.match(script, /return 'NO_ZIP_EXT'/);
+    assert.match(script, /return 'UNZIP_OK ' \. \$count/);
+    assert.match(script, /UNZIP_ERR/);
+  });
+
+  it("escapes single quotes in the destination to keep the PHP literal safe", () => {
+    const evil = buildUnzipScript("/tmp/x.zip", "/tmp/s", "/www/a'b");
+    assert.match(evil, /\$target = '\/www\/a\\'b'/);
+  });
+});
+
+describe("unzip step", () => {
+  it("passes unzip fields through normalization unchanged", () => {
+    const bp = normalizeBlueprint(
+      {
+        steps: [
+          {
+            step: "unzip",
+            url: "https://example.com/exelearning-static-v4.0.1.zip",
+            destination: "apps/exelearning/js/editor",
+          },
+        ],
+      },
+      baseConfig,
+    );
+    assert.equal(bp.steps.length, 1);
+    assert.equal(bp.steps[0].step, "unzip");
+    assert.equal(bp.steps[0].destination, "apps/exelearning/js/editor");
+    assert.equal(
+      bp.steps[0].url,
+      "https://example.com/exelearning-static-v4.0.1.zip",
+    );
   });
 });
 

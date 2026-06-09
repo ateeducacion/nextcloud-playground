@@ -132,6 +132,75 @@ echo (function () {
 }
 
 /**
+ * Extract a downloaded ZIP into an arbitrary destination directory using PHP's
+ * ZipArchive (same one-entry-at-a-time, low-memory approach as the app/core
+ * extractors — the eXeLearning editor is ~70MB / 3000+ files).
+ *
+ * Used by the `unzip` blueprint step to overlay a standalone asset bundle (e.g.
+ * the eXeLearning static editor) into an already-installed app, the way
+ * moodle-playground overlays the editor into a plugin's dist/. The editor asset
+ * wraps everything in a single top-level folder (`static/`); like the core
+ * bundle extractor we descend into that lone wrapper so its contents land
+ * directly in <destination> (archives with several top entries are used as-is).
+ *
+ * Contract: prints exactly one sentinel on stdout:
+ *   - `NO_ZIP_EXT`           → the build lacks ext/zip; caller falls back to JS.
+ *   - `UNZIP_OK <count>`     → extracted <count> entries into <destination>.
+ *   - `UNZIP_ERR <message>`  → anything else; caller falls back to JS.
+ * On success the temp zip is removed; on failure it is left in place so the JS
+ * fallback can read it back without re-downloading.
+ */
+export function buildUnzipScript(zipPath, stagePath, destination) {
+  const zip = escapePhp(zipPath);
+  const stage = escapePhp(stagePath);
+  const target = escapePhp(destination);
+  return `<?php
+echo (function () {
+  $zipPath = '${zip}';
+  $stage = '${stage}';
+  $target = '${target}';
+  if (!class_exists('ZipArchive')) { return 'NO_ZIP_EXT'; }
+  $rrmdir = function ($dir) use (&$rrmdir) {
+    if (!is_dir($dir)) { return; }
+    foreach (scandir($dir) as $e) {
+      if ($e === '.' || $e === '..') { continue; }
+      $p = $dir . '/' . $e;
+      is_dir($p) ? $rrmdir($p) : @unlink($p);
+    }
+    @rmdir($dir);
+  };
+  try {
+    $rrmdir($stage);
+    @mkdir($stage, 0777, true);
+    $zip = new ZipArchive();
+    $rc = $zip->open($zipPath);
+    if ($rc !== true) { $rrmdir($stage); return 'UNZIP_ERR open=' . $rc; }
+    $ok = $zip->extractTo($stage);
+    $count = $zip->numFiles;
+    $zip->close();
+    if (!$ok) { $rrmdir($stage); return 'UNZIP_ERR extract'; }
+    // Descend into a lone wrapping folder (the editor asset wraps everything in
+    // "static/"); archives with several top entries are used as-is.
+    $top = array_values(array_diff(scandir($stage), ['.', '..']));
+    $src = $stage;
+    if (count($top) === 1 && is_dir($stage . '/' . $top[0])) {
+      $src = $stage . '/' . $top[0];
+    }
+    $rrmdir($target);
+    @mkdir(dirname($target), 0777, true);
+    if (!@rename($src, $target)) { $rrmdir($stage); return 'UNZIP_ERR rename'; }
+    $rrmdir($stage);
+    @unlink($zipPath);
+    return 'UNZIP_OK ' . $count;
+  } catch (\\Throwable $e) {
+    $rrmdir($stage);
+    return 'UNZIP_ERR ' . $e->getMessage();
+  }
+})();
+`;
+}
+
+/**
  * Extract the readonly core bundle into the webroot using PHP's ZipArchive
  * instead of decompressing the whole archive in JavaScript.
  *
