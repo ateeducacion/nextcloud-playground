@@ -70,6 +70,7 @@ const KNOWN_STEPS = new Set([
   "setConfig",
   "installApp",
   "writeFile",
+  "unzip",
   "runOcc",
 ]);
 
