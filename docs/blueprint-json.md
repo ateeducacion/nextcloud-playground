@@ -208,10 +208,10 @@ The fetch happens cross-origin from the runtime worker, so the ZIP host **must**
 send `Access-Control-Allow-Origin`. `raw.githubusercontent.com` and GitHub Pages
 do; **GitHub release-asset downloads do not** (they redirect to Azure Blob
 without CORS headers). To serve a release asset, route it through a CORS proxy,
-e.g. the shared `zip-proxy` worker:
+e.g. the shared `github-proxy` worker:
 
 ```
-https://zip-proxy.erseco.workers.dev/?repo=<owner/repo>&release=<tag>&asset=<file>.zip
+https://github-proxy.exelearning.dev/?repo=<owner/repo>&release=<tag>&asset=<file>.zip
 ```
 
 ### `writeFile`
