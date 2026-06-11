@@ -2,8 +2,8 @@
 //
 // SYNCED MIRROR: this file is kept in sync with moodle-playground's
 // scripts/github-proxy-worker.js (the canonical source). Edit it there and
-// re-sync rather than diverging here. Deployed as the `zip-proxy` Cloudflare
-// Worker (https://zip-proxy.ateeducacion.workers.dev/), shared by
+// re-sync rather than diverging here. Deployed as the `github-proxy`
+// Cloudflare Worker (https://github-proxy.exelearning.dev/), shared by
 // omeka-s-playground and nextcloud-playground.
 //
 // Supports two modes:
