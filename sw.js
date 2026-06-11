@@ -1,6 +1,15 @@
+import { BUILD_VERSION } from "./src/generated/build-version.js";
 import { createPhpBridgeChannel, createWorkerRequestId } from "./src/shared/protocol.js";
 
 const INTERNAL_PROXY_PATH = "/__playground_proxy__";
+// Cache-first store for the immutable, hash-named runtime assets under /dist/
+// (the multi-MB PHP .wasm + intl .so). Their filenames already encode a content
+// hash, so they are safe to serve from cache indefinitely and offline; the cache
+// name is keyed by the worker-bundle build so `activate` can drop old
+// generations. This is distinct from STATIC_ASSET_CACHE below, which caches the
+// scoped, PHP-served page assets.
+const STATIC_DIST_CACHE = `fs-dist-${BUILD_VERSION}`;
+const CACHEABLE_DIST_RE = /\/dist\/[^/]+\.(?:wasm|so)$/u;
 let addonProxyUrlOverride = null;
 let playgroundConfigPromise;
 
@@ -15,6 +24,31 @@ const STATIC_ASSET_RE = /\.(css|js|woff2?|ttf|otf|eot|png|jpg|jpeg|gif|svg|ico|w
 
 function isStaticAssetPath(requestPath) {
   return STATIC_ASSET_RE.test(requestPath.split("?")[0]);
+}
+
+function isCacheableDist(pathname) {
+  return CACHEABLE_DIST_RE.test(stripAppBasePath(pathname));
+}
+
+async function distCacheFirst(request) {
+  let cache;
+  try {
+    cache = await caches.open(STATIC_DIST_CACHE);
+  } catch {
+    return fetch(request);
+  }
+
+  const cached = await cache.match(request);
+  if (cached) {
+    return cached;
+  }
+
+  const response = await fetch(request);
+  // Only store complete 200 responses (cache.put rejects 206 Partial Content).
+  if (response.status === 200) {
+    cache.put(request, response.clone()).catch(() => {});
+  }
+  return response;
 }
 const STATIC_PREFIXES = [
   "/assets/",
@@ -496,7 +530,21 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      // Drop /dist caches from older builds before claiming clients.
+      const names = await caches.keys();
+      await Promise.all(
+        names
+          .filter(
+            (name) =>
+              name.startsWith("fs-dist-") && name !== STATIC_DIST_CACHE,
+          )
+          .map((name) => caches.delete(name)),
+      );
+      await self.clients.claim();
+    })(),
+  );
 });
 
 self.addEventListener("fetch", (event) => {
@@ -504,6 +552,17 @@ self.addEventListener("fetch", (event) => {
     const url = new URL(event.request.url);
     if (url.origin !== self.location.origin) {
       return fetch(event.request);
+    }
+
+    // Cache-first for the immutable runtime assets under /dist/ (WASM + intl .so),
+    // so reloads (and offline) don't re-download tens of MB. Range requests are
+    // passed through so a partial-content consumer still gets a 206.
+    if (
+      event.request.method === "GET" &&
+      !event.request.headers.has("range") &&
+      isCacheableDist(url.pathname)
+    ) {
+      return distCacheFirst(event.request);
     }
 
     const strippedPath = stripAppBasePath(url.pathname);
