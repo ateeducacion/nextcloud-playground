@@ -250,28 +250,17 @@ async function resolveScopedRequest(event, url) {
     };
 }
 
-async function serializeRequest(request) {
+// Build the serialized request posted to the PHP worker. The body is the
+// already-buffered ArrayBuffer captured synchronously in the fetch handler (see
+// the comment there): forwarding the original request's stream instead would
+// throw in Firefox, which neuters event.request.body once the handler yields.
+async function buildForwardedRequest(originalRequest, forwardedUrl, bufferedBody) {
   return {
-    url: request.url,
-    method: request.method,
-    headers: Object.fromEntries(request.headers.entries()),
-    body: ["GET", "HEAD"].includes(request.method) ? null : await request.clone().arrayBuffer(),
-  };
-}
-
-function buildPhpRequest(originalRequest, forwardedUrl) {
-  const init = {
+    url: forwardedUrl.toString(),
     method: originalRequest.method,
-    headers: new Headers(originalRequest.headers),
-    redirect: "follow",
+    headers: Object.fromEntries(new Headers(originalRequest.headers).entries()),
+    body: bufferedBody ? await bufferedBody : null,
   };
-
-  if (!["GET", "HEAD"].includes(originalRequest.method)) {
-    init.body = originalRequest.body;
-    init.duplex = "half";
-  }
-
-  return new Request(forwardedUrl.toString(), init);
 }
 
 function rewriteScopedLocation(response, { origin, scopeId, runtimeId }) {
@@ -495,11 +484,11 @@ function buildScopedUrl(url, { scopeId, runtimeId, requestPath }) {
   return new URL(`${scopedPath}`, url.origin);
 }
 
-function forwardToPhpWorker({ request, runtimeId, scopeId }) {
+function forwardToPhpWorker({ serializedRequest, runtimeId, scopeId }) {
   const bridge = ensureBridge(scopeId);
   const id = createWorkerRequestId();
 
-  return new Promise(async (resolve) => {
+  return new Promise((resolve) => {
     const timeoutId = self.setTimeout(() => {
       pending.delete(id);
       resolve(buildErrorResponse("PHP worker bridge timed out.", 504));
@@ -510,7 +499,7 @@ function forwardToPhpWorker({ request, runtimeId, scopeId }) {
     bridge.postMessage({
       kind: "http-request",
       id,
-      request: await serializeRequest(request),
+      request: serializedRequest,
     });
   });
 }
@@ -548,6 +537,18 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
+  // Firefox neuters event.request.body once this handler yields to the event
+  // loop, so buffer the body synchronously now — before any await — for the
+  // methods that carry one. Reading it later (after the resolveScopedRequest()
+  // / broadcastToClients() awaits) throws in Firefox and makes the whole
+  // handler reject ("A ServiceWorker intercepted the request and encountered an
+  // unexpected error"), which broke every WebDAV/PROPFIND/REPORT with a body —
+  // e.g. opening folders in the Nextcloud Files app. The buffered bytes are
+  // forwarded to the PHP worker in place of the stream. Cloning leaves
+  // event.request intact for the pass-through `fetch(event.request)` branches.
+  const bufferedBody = ["GET", "HEAD"].includes(event.request.method)
+    ? null
+    : event.request.clone().arrayBuffer().catch(() => null);
   event.respondWith((async () => {
     const url = new URL(event.request.url);
     if (url.origin !== self.location.origin) {
@@ -600,7 +601,7 @@ self.addEventListener("fetch", (event) => {
 
       await broadcastToClients({ kind: "sw-debug", detail: `[sw-bridge] cache miss → worker: ${requestPath}` });
       const fresh = await forwardToPhpWorker({
-        request: buildPhpRequest(event.request, forwardedUrl),
+        serializedRequest: await buildForwardedRequest(event.request, forwardedUrl, bufferedBody),
         runtimeId,
         scopeId,
       }).catch((error) => buildErrorResponse(String(error?.stack || error?.message || error)));
@@ -613,7 +614,7 @@ self.addEventListener("fetch", (event) => {
 
     await broadcastToClients({ kind: "sw-debug", detail: `[sw-bridge] → worker: ${event.request.method} ${requestPath}` });
     const response = await forwardToPhpWorker({
-      request: buildPhpRequest(event.request, forwardedUrl),
+      serializedRequest: await buildForwardedRequest(event.request, forwardedUrl, bufferedBody),
       runtimeId,
       scopeId,
     }).catch((error) => buildErrorResponse(String(error?.stack || error?.message || error)));
