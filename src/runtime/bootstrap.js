@@ -1,4 +1,5 @@
 import { setPhpIniEntries } from "@php-wasm/universal";
+import { resolveBootstrapArchive } from "../../lib/nextcloud-loader.js";
 import {
   buildEffectivePlaygroundConfig,
   normalizeBlueprint,
@@ -76,10 +77,36 @@ async function isInstalled(php) {
   }
 }
 
+/**
+ * Build the version-specific manifest filename for a runtime id.
+ */
+export function manifestNameForRuntime(rawConfig, runtimeId) {
+  const runtime = (rawConfig?.runtimes || []).find(
+    (entry) => entry.id === runtimeId,
+  );
+  return runtime?.nextcloudVersion
+    ? `nextcloud-${runtime.nextcloudVersion}.json`
+    : "latest.json";
+}
+
+/**
+ * Start downloading the readonly-core manifest + bundle right away so the fetch
+ * overlaps the WASM runtime compile in php.refresh() (parallel boot). Resolves
+ * to { manifest, bytes }, consumed by bootstrapNextcloud once the live runtime
+ * can extract it. The bundle is Cache-API backed, so a failed or duplicated
+ * fetch is cheap.
+ */
+export function startCoreArchivePrefetch({ manifestName, onProgress } = {}) {
+  return fetchManifest(manifestName).then((manifest) =>
+    resolveBootstrapArchive({ manifest }, onProgress),
+  );
+}
+
 export async function bootstrapNextcloud({
   config: rawConfig,
   blueprint: rawBlueprint,
   clean,
+  corePrefetch = null,
   php,
   publish,
   runtimeId,
@@ -88,13 +115,12 @@ export async function bootstrapNextcloud({
   const config = buildEffectivePlaygroundConfig(rawConfig, blueprint);
 
   publish("Loading Nextcloud manifest.", 0.2);
-  const runtime = (rawConfig.runtimes || []).find(
-    (entry) => entry.id === runtimeId,
-  );
-  const manifestName = runtime?.nextcloudVersion
-    ? `nextcloud-${runtime.nextcloudVersion}.json`
-    : "latest.json";
-  const manifest = await fetchManifest(manifestName);
+  // Reuse the manifest + core bytes prefetched in parallel with php.refresh()
+  // when available; otherwise fetch lazily.
+  const prefetched = corePrefetch ? await corePrefetch : null;
+  const manifest =
+    prefetched?.manifest ??
+    (await fetchManifest(manifestNameForRuntime(rawConfig, runtimeId)));
   const manifestState = buildManifestState(
     manifest,
     runtimeId,
@@ -103,7 +129,11 @@ export async function bootstrapNextcloud({
   const manifestVersion = `${manifestState.release || ""}:${manifestState.sha256 || ""}`;
 
   publish("Mounting Nextcloud readonly core.", 0.25);
-  await mountReadonlyCore(php, manifest, { root: NEXTCLOUD_ROOT, publish });
+  await mountReadonlyCore(php, manifest, {
+    root: NEXTCLOUD_ROOT,
+    publish,
+    bytes: prefetched?.bytes ?? null,
+  });
 
   publish("Creating mutable directory layout.", 0.42);
   for (const dir of [
