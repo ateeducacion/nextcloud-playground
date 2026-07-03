@@ -62,14 +62,16 @@ const els = {
 const scopeId = getOrCreateScopeId();
 let config;
 
-const blueprintEditor = initBlueprintEditor({
-  mount: els.blueprintEditorMount,
-  textarea: els.blueprintTextarea,
-  statusEl: els.blueprintStatus,
-  runButton: els.runButton,
-  copyButton: els.copyBlueprintButton,
-  getConfig: () => config,
-});
+const blueprintEditor = initBlueprintEditor(
+  {
+    mount: els.blueprintEditorMount,
+    textarea: els.blueprintTextarea,
+    statusEl: els.blueprintStatus,
+    runButton: els.runButton,
+    copyButton: els.copyBlueprintButton,
+  },
+  { getConfig: () => config },
+);
 
 let currentRuntimeId;
 let currentPath = "/";
