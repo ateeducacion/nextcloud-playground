@@ -24,14 +24,14 @@ function highlightForCodeJar(editor) {
  * stays in sync with the editor content at all times, so any existing code
  * that reads `#blueprint-textarea` keeps working.
  *
- * @param {{mount: HTMLElement|null, textarea: HTMLTextAreaElement, statusEl: HTMLElement|null, runButton: HTMLButtonElement|null, copyButton: HTMLButtonElement|null, getConfig: Function}} elements
- * @param {{location?: Location}} [options]
+ * @param {{mount: HTMLElement|null, textarea: HTMLTextAreaElement, statusEl: HTMLElement|null, runButton: HTMLButtonElement|null, copyButton: HTMLButtonElement|null}} elements
+ * @param {{location?: Location, getConfig?: () => object|undefined}} [options]
  * @returns {{setCode(text: string): void, getCode(): string, getValidationResult(): object, setLocked(locked: boolean): void}}
  */
 export function initBlueprintEditor(elements, options = {}) {
-  const { mount, textarea, statusEl, runButton, copyButton, getConfig } =
-    elements;
+  const { mount, textarea, statusEl, runButton, copyButton } = elements;
   const loc = options.location || window.location;
+  const getConfig = options.getConfig || (() => undefined);
 
   // `getConfig()` reads the live module-level `config` variable in
   // `main.js`, which is `undefined` until `loadPlaygroundConfig()` resolves
