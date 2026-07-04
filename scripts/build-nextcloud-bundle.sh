@@ -110,6 +110,12 @@ done
 find "$NC_STAGE" -type f -name "*.map" -delete 2>/dev/null || true
 rm -rf "$NC_STAGE/.git" "$NC_STAGE/.github" "$NC_STAGE/.tx"
 
+# The .map files above are gone, so their REUSE `.map.license` sidecars — shipped
+# as symlinks to the sibling `.js.license` — now dangle. Drop them so the staged
+# tree is symlink-free. This is bundle-neutral: the tar packer walks regular
+# files only and already silently omits every symlink (see the tripwire below).
+find "$NC_STAGE" -type l -name "*.map.license" -delete 2>/dev/null || true
+
 # Remove heavy optional shipped apps not needed for the demo.
 REMOVE_APPS="photos suspicious_login files_pdfviewer recommendations \
 bruteforcesettings related_resources user_ldap circles privacy app_api \
@@ -123,6 +129,21 @@ for app in $REMOVE_APPS; do
 done
 
 echo "Stage size after trim:  $(du -sh "$NC_STAGE" | cut -f1)" >&2
+
+# 4b. Tripwire against silent drops. The tar packer (build-tar-zst-bundle.mjs)
+#     records regular files only (its walk uses isFile()), reconstructs
+#     directories from each file's parent path, and never follows symlinks. So a
+#     symlink or empty directory left in the stage would vanish from the bundle
+#     with no trace — and the file-count parity check (regular files on both
+#     sides) is blind to it. Fail loudly here instead of shipping a partial tree.
+SYMLINKS=$(find "$NC_STAGE" -type l)
+EMPTY_DIRS=$(find "$NC_STAGE" -type d -empty)
+if [ -n "$SYMLINKS" ] || [ -n "$EMPTY_DIRS" ]; then
+  echo "ERROR: staged tree has symlinks or empty dirs the tar packer would silently drop:" >&2
+  [ -n "$SYMLINKS" ] && { echo "  symlinks:" >&2; echo "$SYMLINKS" | sed 's/^/    /' >&2; }
+  [ -n "$EMPTY_DIRS" ] && { echo "  empty dirs:" >&2; echo "$EMPTY_DIRS" | sed 's/^/    /' >&2; }
+  exit 1
+fi
 
 # 5. Pack the staged tree into a deterministic, streaming-extractable tar.zst.
 #    Pass the INNER "$NC_STAGE" dir so the tar entries are root-relative (no
@@ -143,7 +164,7 @@ echo "Release version: $RELEASE_VERSION" >&2
 # Use the packer's reported file count (the number of regular-file tar entries).
 # The runtime StreamingTarParser compares its streamed file count against this
 # manifest value, so deriving it from the packer keeps them in lock-step.
-FILE_COUNT=$(printf '%s' "$BUILD_JSON" | node -e 'let s="";process.stdin.on("data",d=>{s+=d;}).on("end",()=>{process.stdout.write(String(JSON.parse(s).fileCount||0));});')
+FILE_COUNT=$(BUILD_JSON="$BUILD_JSON" node -pe 'JSON.parse(process.env.BUILD_JSON).fileCount || 0')
 echo "Bundle file count: $FILE_COUNT" >&2
 
 # 7. Generate the manifest with the shared node script.

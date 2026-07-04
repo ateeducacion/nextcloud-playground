@@ -6,7 +6,7 @@
 //
 // Deterministic USTAR + GNU longlink (never PAX — the streaming parser and PHP
 // readers do not honor PAX 'path' headers). zstd level 19 + long-distance matching
-// (windowLog 27) for strong cross-file dedup. Requires Node >= 22.15 (native
+// (windowLog 24) for strong cross-file dedup. Requires Node >= 22.15 (native
 // node:zlib zstd); CI must run Node 24 LTS.
 //
 // Usage: node scripts/build-tar-zst-bundle.mjs <stageDir> <out.tar.zst>
@@ -51,7 +51,12 @@ const compressed = zlib.zstdCompressSync(tar, {
   params: {
     [zlib.constants.ZSTD_c_compressionLevel]: 19,
     [zlib.constants.ZSTD_c_enableLongDistanceMatching]: 1,
-    [zlib.constants.ZSTD_c_windowLog]: 27,
+    // windowLog 24 (16 MiB), not 27 (128 MiB): measured on the moodle tree,
+    // wlog 24 costs only +0.9% compressed size but shrinks the zstd decode
+    // window 8× (128 → 16 MiB) that the zstddec WASM decoder allocates per
+    // client at extraction time — the memory that matters most for a large
+    // core like Nextcloud's.
+    [zlib.constants.ZSTD_c_windowLog]: 24,
   },
 });
 writeFileSync(outFile, compressed);

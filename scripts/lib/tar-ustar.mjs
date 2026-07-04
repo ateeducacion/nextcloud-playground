@@ -1,5 +1,8 @@
 // tar-ustar.mjs — a small, deterministic USTAR tar writer + reader.
 //
+// Extracted verbatim from moodle-playground (canonical origin:
+// https://github.com/ateeducacion/moodle-playground) — keep in sync.
+//
 // Why hand-rolled: the compression experiment needs a byte-for-byte reproducible
 // `.tar` so the reported SHA-256 is stable across runs and machines. The local
 // `tar` is bsdtar (libarchive), which does NOT accept GNU-tar's `--sort` and
@@ -26,7 +29,7 @@
 
 const BLOCK = 512;
 
-// --- name sanitization (parity with lib/moodle-loader.js) --------------------
+// --- name sanitization (parity with lib/nextcloud-loader.js) -----------------
 
 export function normalizeArchiveName(name) {
   return String(name).replaceAll("\\", "/").replace(/^\/+/, "");

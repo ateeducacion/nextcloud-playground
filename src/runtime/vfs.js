@@ -35,8 +35,15 @@ export async function mountReadonlyCore(
     "../../lib/streaming-tar-extract.js"
   );
   publish?.("Extracting Nextcloud core…", 0.45);
-  const stream = await createDecodedTarStream(archiveBytes, "zstd");
-  // Drop the JS reference to the compressed buffer; the decode stream owns it now.
+  const stream = await createDecodedTarStream(
+    archiveBytes,
+    manifest?.bundle?.codec ?? "zstd",
+  );
+  // Release our own reference to the compressed bytes. This does NOT lower peak
+  // memory: the zstddec decoder keeps the whole compressed buffer in its input
+  // array until extraction finishes (only the native DecompressionStream path,
+  // which no browser exposes for zstd today, would drain it incrementally). It
+  // just lets GC reclaim the buffer once the decode completes.
   archiveBytes = null;
   const stats = await extractTarStreamToPhp(stream, php, root);
 
