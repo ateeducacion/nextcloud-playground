@@ -42,7 +42,9 @@ const manifest = {
     commit: args.sourceCommit,
   },
   bundle: {
-    format: "zip",
+    format: "tar.zst",
+    container: "tar",
+    codec: "zstd",
     path: relative(resolve(manifestPath, ".."), bundlePath).replaceAll(
       "\\",
       "/",

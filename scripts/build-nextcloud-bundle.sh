@@ -2,22 +2,30 @@
 
 set -eu
 
-# Build ONE trimmed, WASM-patched Nextcloud ZIP bundle + manifest for a single
-# major version.
+# Build ONE trimmed, WASM-patched Nextcloud tar.zst bundle + manifest for a
+# single major version.
+#
+# The bundle is a solid, zstd-compressed tar (`.tar.zst`) that the browser
+# runtime extracts by streaming zstd decode + incremental TAR parsing, writing
+# each file straight into MEMFS (see lib/streaming-tar-extract.js and
+# docs/streaming-tar-zst-core-bundle.md). It fully replaces the old ZIP bundle.
 #
 # Inputs (env):
 #   NC_RELEASE  release id to fetch (default "latest-33")
 #   NC_MAJOR    Nextcloud major version (default "33")
 #
 # Outputs:
-#   assets/nextcloud/nextcloud-${MAJOR}/nextcloud-core-${MAJOR}.zip
+#   assets/nextcloud/nextcloud-${MAJOR}/nextcloud-core-${MAJOR}.tar.zst
 #   assets/manifests/nextcloud-${MAJOR}.json
 #   assets/manifests/latest.json (only when MAJOR is the default version per
 #   src/shared/nextcloud-versions.js)
 #
 # Unlike a FacturaScripts checkout, Nextcloud release tarballs ship pre-built:
 # vendor/ (3rdparty/), compiled JS (dist/) and l10n are already present, so we
-# do NOT run composer or npm here. We only stage, WASM-patch, trim and zip.
+# do NOT run composer or npm here. We only stage, WASM-patch, trim and pack.
+#
+# Requires Node >= 22.15 for the native node:zlib zstd used by the tar packer
+# (CI runs Node 24). No `zstd` CLI is needed.
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
@@ -30,7 +38,7 @@ STAGE_DIR="$WORK_DIR/stage"
 NC_STAGE="$STAGE_DIR/nextcloud"
 DIST_DIR=${DIST_DIR:-"$REPO_DIR/assets/nextcloud/nextcloud-${MAJOR}"}
 MANIFEST_DIR=${MANIFEST_DIR:-"$REPO_DIR/assets/manifests"}
-BUNDLE_PATH="$DIST_DIR/nextcloud-core-${MAJOR}.zip"
+BUNDLE_PATH="$DIST_DIR/nextcloud-core-${MAJOR}.tar.zst"
 MANIFEST_PATH="$MANIFEST_DIR/nextcloud-${MAJOR}.json"
 
 # 1. Fetch the release source (downloads + extracts, prints the source dir).
@@ -116,10 +124,14 @@ done
 
 echo "Stage size after trim:  $(du -sh "$NC_STAGE" | cut -f1)" >&2
 
-# 5. Zip with the top-level "nextcloud/" prefix (the loader strips it).
-echo "Creating ZIP bundle: $BUNDLE_PATH ..." >&2
+# 5. Pack the staged tree into a deterministic, streaming-extractable tar.zst.
+#    Pass the INNER "$NC_STAGE" dir so the tar entries are root-relative (no
+#    "nextcloud/" wrapper) — the runtime writes them straight under the docroot,
+#    so no wrapper-strip is needed on extraction.
+echo "Creating tar.zst bundle: $BUNDLE_PATH ..." >&2
 rm -f "$BUNDLE_PATH"
-(cd "$STAGE_DIR" && zip -qr "$BUNDLE_PATH" nextcloud)
+BUILD_JSON=$(node "$SCRIPT_DIR/build-tar-zst-bundle.mjs" "$NC_STAGE" "$BUNDLE_PATH")
+echo "Bundle build result: $BUILD_JSON" >&2
 
 # 6. Read the exact release version from version.php (fallback to MAJOR).
 RELEASE_VERSION=$(php -r 'preg_match("/OC_VersionString\s*=\s*.([\d.]+)/", file_get_contents($argv[1]), $m); echo $m[1] ?? "";' "$NC_STAGE/version.php")
@@ -128,7 +140,10 @@ if [ -z "$RELEASE_VERSION" ]; then
 fi
 echo "Release version: $RELEASE_VERSION" >&2
 
-FILE_COUNT=$(find "$NC_STAGE" -type f | wc -l | tr -d ' ')
+# Use the packer's reported file count (the number of regular-file tar entries).
+# The runtime StreamingTarParser compares its streamed file count against this
+# manifest value, so deriving it from the packer keeps them in lock-step.
+FILE_COUNT=$(printf '%s' "$BUILD_JSON" | node -e 'let s="";process.stdin.on("data",d=>{s+=d;}).on("end",()=>{process.stdout.write(String(JSON.parse(s).fileCount||0));});')
 echo "Bundle file count: $FILE_COUNT" >&2
 
 # 7. Generate the manifest with the shared node script.

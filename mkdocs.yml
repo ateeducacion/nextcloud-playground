@@ -20,6 +20,7 @@ nav:
   - Home: index.md
   - Getting started: getting-started.md
   - Development: development.md
+  - Core bundle (tar.zst): streaming-tar-zst-core-bundle.md
   - blueprint.json: blueprint-json.md
   - Known issues: KNOWN-ISSUES.md
   - Feasibility spike: feasibility-spike.md
