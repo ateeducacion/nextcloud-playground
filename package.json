@@ -23,7 +23,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.0",
     "@php-wasm/node": "^3.1.40",
-    "@playwright/test": "^1.61.0",
+    "@playwright/test": "^1.61.1",
     "esbuild": "^0.28.1"
   }
 }
