@@ -30,7 +30,9 @@ MEMFS as it decodes.
   walk the staged tree into a deterministic, files-only USTAR tar (USTAR
   `prefix`/`name` split with a GNU `././@LongLink` fallback for long names — no
   PAX, which tar readers silently mishandle), then compress with `node:zlib`
-  zstd level 19 + long-distance matching (windowLog 27). Requires Node ≥ 22.15
+  zstd level 19 + long-distance matching (windowLog 24 — a 16 MiB decode window;
+  dropping from wlog 27's 128 MiB costs only ~+0.9% compressed size but shrinks
+  the per-client zstddec decode-window allocation 8×). Requires Node ≥ 22.15
   (CI runs Node 24). The tar entries are root-relative, so no wrapper directory
   is stripped at extraction time.
 - **Runtime** (`lib/streaming-tar-extract.js`, driven by
@@ -68,9 +70,10 @@ bundled into the worker and used for the streaming decode.
 - **Bounded peak memory.** The ~250 MB-class uncompressed tar is never
   materialized. At any instant the runtime holds only a partial 512-byte header,
   the current entry's bytes (bounded by the largest single file), and one decoded
-  chunk. This is what let the moodle experiment move from "defer" (ADR 0018's
-  full-tar materialization was an OOM risk) to "adopt" (ADR 0019's streaming
-  extractor).
+  chunk; the zstddec decoder's own working set is bounded by the 16 MiB zstd
+  window (windowLog 24). This is what let the moodle experiment move from
+  "defer" (ADR 0018's full-tar materialization was an OOM risk) to "adopt"
+  (ADR 0019's streaming extractor).
 - **Cross-browser.** The streaming path works on Chrome and Firefox.
 - **Simpler.** ZIP is fully replaced; there is no dual-path fallback to maintain.
   A failed extraction is not cached, so a reload simply retries.

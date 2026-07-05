@@ -47,6 +47,7 @@ jobs:
           node --check src/shell/main.js
           node --check lib/nextcloud-loader.js
           node --check lib/streaming-tar-extract.js
+          node --check scripts/lib/tar-ustar.mjs
           node --check php-worker.js
           node --check sw.js
 
