@@ -130,18 +130,21 @@ done
 
 echo "Stage size after trim:  $(du -sh "$NC_STAGE" | cut -f1)" >&2
 
-# 4b. Tripwire against silent drops. The tar packer (build-tar-zst-bundle.mjs)
-#     records regular files only (its walk uses isFile()), reconstructs
-#     directories from each file's parent path, and never follows symlinks. So a
-#     symlink or empty directory left in the stage would vanish from the bundle
-#     with no trace — and the file-count parity check (regular files on both
-#     sides) is blind to it. Fail loudly here instead of shipping a partial tree.
+# 4b. Prune empty dirs, then a symlink-only tripwire. The tar packer
+#     (build-tar-zst-bundle.mjs) records regular files only (its walk uses
+#     isFile()) and reconstructs each directory from its files' parent paths, so
+#     it NEVER emits a directory entry — empty directories are bundle-neutral and
+#     must not fail the build. Deleting a dangling symlink above can itself empty
+#     a parent dir, so prune empty dirs (cascading bottom-up via -depth) instead
+#     of failing on them. Symlinks are the real hazard: the packer never follows
+#     them, so any symlink left here would vanish from the bundle with no trace,
+#     and the file-count parity check (regular files on both sides) is blind to
+#     it. Fail loudly on those.
+find "$NC_STAGE" -depth -type d -empty -delete 2>/dev/null || true
 SYMLINKS=$(find "$NC_STAGE" -type l)
-EMPTY_DIRS=$(find "$NC_STAGE" -type d -empty)
-if [ -n "$SYMLINKS" ] || [ -n "$EMPTY_DIRS" ]; then
-  echo "ERROR: staged tree has symlinks or empty dirs the tar packer would silently drop:" >&2
-  [ -n "$SYMLINKS" ] && { echo "  symlinks:" >&2; echo "$SYMLINKS" | sed 's/^/    /' >&2; }
-  [ -n "$EMPTY_DIRS" ] && { echo "  empty dirs:" >&2; echo "$EMPTY_DIRS" | sed 's/^/    /' >&2; }
+if [ -n "$SYMLINKS" ]; then
+  echo "ERROR: staged tree has symlinks the tar packer would silently drop:" >&2
+  echo "$SYMLINKS" | sed 's/^/    /' >&2
   exit 1
 fi
 
