@@ -34,7 +34,9 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          # Node 24: the tar.zst packer (scripts/build-tar-zst-bundle.mjs) needs
+          # native node:zlib zstd (>= 22.15) to build the core bundle.
+          node-version: 24
           cache: npm
 
       - uses: actions/setup-python@v6

@@ -1,7 +1,4 @@
 import { resolveBootstrapArchive } from "../../lib/nextcloud-loader.js";
-import { buildCoreExtractScript } from "./install-script.js";
-
-const decoder = new TextDecoder();
 
 export async function mountReadonlyCore(
   php,
@@ -11,6 +8,8 @@ export async function mountReadonlyCore(
   // Parallel boot: prefer the core bytes the worker downloaded while the WASM
   // runtime was compiling. Fall back to a lazy download when called without
   // them, where the bundle is served from the Cache API so the fetch is cheap.
+  // For a chunked (oversized) bundle resolveBootstrapArchive reassembles the
+  // parts into the whole tar.zst before returning — transparent here.
   let archiveBytes = bytes;
   if (!archiveBytes) {
     const archive = await resolveBootstrapArchive({ manifest }, (progress) => {
@@ -24,37 +23,40 @@ export async function mountReadonlyCore(
     archiveBytes = archive.bytes;
   }
 
-  // Extract the core with PHP's native ZipArchive instead of decompressing the
-  // whole ~167 MB / ~15 496-file archive in JS. libzip inflates + writes one
-  // entry at a time (fast at any file count, ~one-entry peak), avoiding both the
-  // fflate `unzipSync` heap OOM and the per-entry DecompressionStream overhead
-  // of `decodeZip` (which made boot exceed the readiness gate). Write the zip to
-  // MEMFS, run the extractor, then fail loud if ext/zip is missing or it errors
-  // — the install is not cached, so a reload retries (no JS fallback by design).
-  const tmpZip = "/tmp/nextcloud-core.zip";
-  const stage = "/tmp/nextcloud-core-stage";
+  // Stream the solid tar.zst core into MEMFS one entry at a time: a streaming
+  // zstd decode feeds an incremental USTAR/GNU-longlink parser that writes each
+  // file straight under `root` (creating parent dirs on the way). The full
+  // ~250 MB-class uncompressed tar is never materialized — peak memory stays
+  // bounded to about one file — and it works on Chrome and Firefox (no browser
+  // exposes DecompressionStream("zstd"), so a small zstddec WASM decoder is
+  // bundled). This fully replaces the old ZIP path (no fallback by design); the
+  // install is not cached, so a reload retries on any failure.
+  const { createDecodedTarStream, extractTarStreamToPhp } = await import(
+    "../../lib/streaming-tar-extract.js"
+  );
   publish?.("Extracting Nextcloud core…", 0.45);
-  await php.writeFile(tmpZip, archiveBytes);
-  // Drop the JS reference to the compressed buffer now that MEMFS has its own
-  // copy, so the GC can reclaim it while ZipArchive extracts.
+  const stream = await createDecodedTarStream(
+    archiveBytes,
+    manifest?.bundle?.codec ?? "zstd",
+  );
+  // Release our own reference to the compressed bytes. This does NOT lower peak
+  // memory: the zstddec decoder keeps the whole compressed buffer in its input
+  // array until extraction finishes (only the native DecompressionStream path,
+  // which no browser exposes for zstd today, would drain it incrementally). It
+  // just lets GC reclaim the buffer once the decode completes.
   archiveBytes = null;
-  const result = await php.run(buildCoreExtractScript(tmpZip, stage, root));
-  const out = decoder.decode(result.bytes || new Uint8Array()).trim();
-  if (!out.startsWith("INSTALL_OK")) {
+  const stats = await extractTarStreamToPhp(stream, php, root);
+
+  // Parity tripwire: the streamed file count must match the manifest, so a
+  // truncated/short download can never silently mount a partial core.
+  if (
+    manifest?.bundle?.fileCount &&
+    stats.fileCount !== manifest.bundle.fileCount
+  ) {
     throw new Error(
-      `Nextcloud core extraction failed: ${out.slice(0, 200)} ` +
-        "(PHP ext/zip is required to mount the core).",
+      `core tar file-count parity mismatch: ${stats.fileCount} != ${manifest.bundle.fileCount}`,
     );
   }
-  const written = Number.parseInt(out.slice("INSTALL_OK".length).trim(), 10);
 
-  return { manifest, entries: written };
-}
-
-export async function fetchArrayBuffer(path, cache = "default") {
-  const response = await fetch(path, { cache });
-  if (!response.ok) {
-    throw new Error(`Unable to fetch ${path}: ${response.status}`);
-  }
-  return response.arrayBuffer();
+  return { manifest, entries: stats.fileCount };
 }
