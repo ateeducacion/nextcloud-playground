@@ -10,7 +10,7 @@
 // node:zlib zstd); CI must run Node 24 LTS.
 //
 // Usage: node scripts/build-tar-zst-bundle.mjs <stageDir> <out.tar.zst>
-// Prints JSON: { fileCount, bytes, sha256, uncompressedBytes }
+// Prints JSON: { fileCount, dirCount, bytes, sha256, uncompressedBytes }
 
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -45,7 +45,16 @@ function walk(dir, base, map) {
 const fileMap = {};
 walk(stageDir, stageDir, fileMap);
 const entries = normalizeEntries(fileMap);
-const uncompressedBytes = entries.reduce((n, e) => n + e.data.length, 0);
+// fileCount stays files-only for parity with the runtime tripwire
+// (extractStats.fileCount in src/runtime/vfs.js), which counts files only and
+// sends directory entries to dirCount. Preserved empty directories are reported
+// separately as dirCount so the manifest file count is never inflated by them.
+const fileCount = entries.reduce((n, e) => n + (e.type === "dir" ? 0 : 1), 0);
+const dirCount = entries.length - fileCount;
+const uncompressedBytes = entries.reduce(
+  (n, e) => n + (e.type === "dir" ? 0 : e.data.length),
+  0,
+);
 const tar = createUstarTar(entries, { mtime: 0 });
 const compressed = zlib.zstdCompressSync(tar, {
   params: {
@@ -62,7 +71,8 @@ const compressed = zlib.zstdCompressSync(tar, {
 writeFileSync(outFile, compressed);
 console.log(
   JSON.stringify({
-    fileCount: entries.length,
+    fileCount,
+    dirCount,
     bytes: compressed.length,
     sha256: createHash("sha256").update(compressed).digest("hex"),
     uncompressedBytes,
