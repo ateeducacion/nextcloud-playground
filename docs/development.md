@@ -158,6 +158,50 @@ make lint       # Biome — must pass clean
 
 See the `unit-testing` and `e2e-playwright` agent skills for conventions.
 
+## Performance comparisons
+
+When working on boot time, bundle size, persistence, service worker
+caching, or other performance-sensitive changes, use the comparison script:
+
+```bash
+node scripts/perf-compare.mjs \
+  --base=https://nextcloud-playground.pages.dev/ \
+  --candidate=https://<your-branch-or-pr>.nextcloud-playground.pages.dev/ \
+  --iterations=5
+```
+
+Key flags:
+
+- `--base` / `--candidate` (also accept `--prod` / `--preview`, `--before` / `--after`)
+- `--iterations=N` (default 3; boots are expensive)
+- `--no-clean` — measure warm boots (caches, SW, IndexedDB journals, OPcache)
+- `--headed` — visible browser for debugging
+- `--json` — machine-readable output for archiving results
+- `--label-base=... --label-candidate=...` — nicer names in the report
+
+The script forces **clean boots** by default (unique `?blueprint-data=` on every
+run). This exercises the full expensive path: streaming the core bundle,
+extracting into MEMFS, running `occ maintenance:install`, etc. This is usually
+the path you care about for performance PRs.
+
+Make target (basic usage):
+
+```bash
+BASE=https://nextcloud-playground.pages.dev/ \
+CANDIDATE=https://my-pr-slug.nextcloud-playground.pages.dev/ \
+ITERATIONS=5 make perf-compare
+```
+
+See the top of `scripts/perf-compare.mjs` for more examples and caveats
+(network variance, Cloudflare POPs, etc.).
+
+Typical workflow for a perf PR:
+
+1. Open a PR → Cloudflare Pages posts a preview URL in the comments.
+2. Run the comparison locally against production (or against `main`).
+3. Paste the summary (or the JSON) into the PR description or a comment.
+4. Optionally re-run with `--no-clean` to show warm-boot improvements.
+
 ## When to update docs
 
 Update docs in the same change if you touch: `playground.config.json`, the
