@@ -9,6 +9,7 @@
     "build-worker": "node ./scripts/esbuild.worker.mjs",
     "generate-og-image": "node ./scripts/generate-og-image.mjs",
     "generate-screenshot": "node ./scripts/generate-screenshot.mjs",
+    "perf-compare": "node ./scripts/perf-compare.mjs",
     "bundle": "./scripts/build-nextcloud-bundle.sh",
     "test": "node --test tests/*.test.mjs",
     "test:e2e": "playwright test"
