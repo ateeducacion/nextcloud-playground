@@ -4,9 +4,10 @@ import {
   NEXTCLOUD_DATA_DIR,
   PLAYGROUND_DB_PATH,
 } from "../src/runtime/bootstrap-paths.js";
-import { createSnapshotManager } from "../src/runtime/crash-recovery.js";
-
-const DEFAULT_MAX_CRASH_DATA_DIR_BYTES = 16 * 1024 * 1024;
+import {
+  createSnapshotManager,
+  DEFAULT_MAX_CRASH_DATA_DIR_BYTES,
+} from "../src/runtime/crash-recovery.js";
 
 function createFs(entries = {}) {
   const files = new Map(

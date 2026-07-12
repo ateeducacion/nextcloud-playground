@@ -12,6 +12,7 @@ const OPCACHE_DB_PREFIX = "nextcloud-opcache";
 const DB_VERSION = 1;
 const STORE_NAME = "ops";
 const FLUSH_DELAY_MS = 1500;
+export const SQLITE_TEMP_FILE_RE = /\.(sqlite-journal|sqlite-wal|sqlite-shm)$/u;
 const MUTABLE_PATH_PREFIXES = [
   "/persist",
   NEXTCLOUD_CONFIG_DIR,
@@ -307,7 +308,7 @@ export async function initFsPersistence(rawPhp, scopeId, phpVersion) {
 
   for (const root of MUTABLE_PATH_PREFIXES) {
     journalFSEvents(rawPhp, root, (op) => {
-      if (/\.(sqlite-journal|sqlite-wal|sqlite-shm)$/u.test(op.path || "")) {
+      if (SQLITE_TEMP_FILE_RE.test(op.path || "")) {
         return;
       }
       pendingPersistOps.push(op);

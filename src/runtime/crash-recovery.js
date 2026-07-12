@@ -9,8 +9,13 @@
  */
 
 import { NEXTCLOUD_DATA_DIR, PLAYGROUND_DB_PATH } from "./bootstrap-paths.js";
+import { SQLITE_TEMP_FILE_RE } from "./fs-persistence.js";
 
-const DEFAULT_MAX_CRASH_DATA_DIR_BYTES = 16 * 1024 * 1024;
+export const DEFAULT_MAX_CRASH_DATA_DIR_BYTES = 16 * 1024 * 1024;
+
+function formatKB(bytes) {
+  return Math.round((bytes || 0) / 1024);
+}
 
 /**
  * Detect Emscripten errno 23 (EHOSTUNREACH).  In WASM, outbound curl
@@ -163,7 +168,7 @@ export function createSnapshotManager({
           visit(entry);
           continue;
         }
-        if (/\.(sqlite-journal|sqlite-wal|sqlite-shm)$/u.test(entry)) {
+        if (SQLITE_TEMP_FILE_RE.test(entry)) {
           continue;
         }
 
@@ -196,7 +201,7 @@ export function createSnapshotManager({
           if (!result.ok) {
             const sizeDetail =
               result.reason === "size-limit"
-                ? ` (${Math.round((result.estimatedBytes || 0) / 1024)}KB exceeds ${Math.round(maxCrashDataDirBytes / 1024)}KB limit)`
+                ? ` (${formatKB(result.estimatedBytes)}KB exceeds ${formatKB(maxCrashDataDirBytes)}KB limit)`
                 : "";
             postShell({
               kind: "error",
@@ -207,7 +212,7 @@ export function createSnapshotManager({
 
           postShell({
             kind: "trace",
-            detail: `[snapshot] checkpointed ${result.flushedOps || 0} pending data-dir ops (${Math.round((result.hydratedBytes || 0) / 1024)}KB)`,
+            detail: `[snapshot] checkpointed ${result.flushedOps || 0} pending data-dir ops (${formatKB(result.hydratedBytes)}KB)`,
           });
           return { ok: true, mode: "journal" };
         }
@@ -248,14 +253,14 @@ export function createSnapshotManager({
     if (fallback.exceeded) {
       postShell({
         kind: "error",
-        detail: `[snapshot] bounded data-dir fallback exceeds ${Math.round(maxCrashDataDirBytes / 1024)}KB; skipping live snapshot`,
+        detail: `[snapshot] bounded data-dir fallback exceeds ${formatKB(maxCrashDataDirBytes)}KB; skipping live snapshot`,
       });
       return { ok: false, mode: "fallback", reason: "size-limit" };
     }
 
     postShell({
       kind: "trace",
-      detail: `[snapshot] saved bounded data-dir fallback (${fallback.files.length} entries, ${Math.round(fallback.totalBytes / 1024)}KB)`,
+      detail: `[snapshot] saved bounded data-dir fallback (${fallback.files.length} entries, ${formatKB(fallback.totalBytes)}KB)`,
     });
     return { ok: true, mode: "fallback", files: fallback.files };
   }
