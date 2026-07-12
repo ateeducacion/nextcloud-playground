@@ -20,6 +20,8 @@ const MUTABLE_PATH_PREFIXES = [
 ];
 
 function isPathUnderPrefix(path, pathPrefix) {
+  // An empty pathPrefix means "flush everything" for callers like flushNow()
+  // that intentionally omit a scope filter.
   if (!pathPrefix) return true;
   const normalizedPrefix = String(pathPrefix).replace(/\/$/u, "");
   return path === normalizedPrefix || path.startsWith(`${normalizedPrefix}/`);
@@ -97,7 +99,15 @@ export async function collapseAndHydrate(rawPhp, ops) {
 function estimateWriteBytes(rawPhp, ops, getFileSize) {
   const resolveFileSize =
     getFileSize ||
-    ((path) => rawPhp[__private__dont__use].FS.stat(path).size || 0);
+    ((path) => {
+      try {
+        return rawPhp[__private__dont__use].FS.stat(path).size || 0;
+      } catch (error) {
+        throw new Error(
+          `Unable to estimate persisted size for ${path}: ${error?.message || error}`,
+        );
+      }
+    });
   let estimatedBytes = 0;
 
   for (const op of ops) {

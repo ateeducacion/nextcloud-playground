@@ -33,6 +33,9 @@ let forceCleanBoot = false;
 
 const MAX_REACTIVE_RESTARTS = 20;
 const MIN_REQUESTS_BEFORE_RESTART = 10;
+// Very high watermark: we only emit a diagnostic at 1500 requests because a
+// full Nextcloud reboot is expensive. This is a hint for long-lived tabs, not an
+// automatic restart threshold.
 const RUNTIME_HIGH_WATERMARK_REQUESTS = 1500;
 let requestCount = 0;
 let reactiveRestartCount = 0;

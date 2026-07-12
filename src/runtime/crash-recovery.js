@@ -8,6 +8,7 @@
  *   - DB snapshot preserves session state across restarts.
  */
 
+import { __private__dont__use } from "@php-wasm/universal";
 import { NEXTCLOUD_DATA_DIR, PLAYGROUND_DB_PATH } from "./bootstrap-paths.js";
 import { SQLITE_TEMP_FILE_RE } from "./fs-persistence.js";
 
@@ -15,6 +16,14 @@ export const DEFAULT_MAX_CRASH_DATA_DIR_BYTES = 16 * 1024 * 1024;
 
 function formatKB(bytes) {
   return Math.round((bytes || 0) / 1024);
+}
+
+function getFileSize(rawPhp, path) {
+  try {
+    return rawPhp[__private__dont__use]?.FS?.stat(path).size || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -148,10 +157,10 @@ export function createSnapshotManager({
   function collectFilesBounded(rawPhp, dirPath, maxBytes) {
     const files = [];
     let totalBytes = 0;
-    let exceeded = false;
+    let sizeExceeded = false;
 
     const visit = (path) => {
-      if (exceeded) return;
+      if (sizeExceeded) return;
       let entries;
       try {
         entries = rawPhp.listFiles(path, { prependPath: true });
@@ -160,7 +169,7 @@ export function createSnapshotManager({
       }
 
       for (const entry of entries) {
-        if (exceeded) return;
+        if (sizeExceeded) return;
         if (entry === PLAYGROUND_DB_PATH) {
           continue;
         }
@@ -173,9 +182,15 @@ export function createSnapshotManager({
         }
 
         try {
+          const knownSize = getFileSize(rawPhp, entry);
+          if (knownSize !== null && totalBytes + knownSize > maxBytes) {
+            sizeExceeded = true;
+            files.length = 0;
+            return;
+          }
           const data = new Uint8Array(rawPhp.readFileAsBuffer(entry));
           if (totalBytes + data.byteLength > maxBytes) {
-            exceeded = true;
+            sizeExceeded = true;
             files.length = 0;
             return;
           }
@@ -186,7 +201,7 @@ export function createSnapshotManager({
     };
 
     visit(dirPath);
-    return { exceeded, files, totalBytes };
+    return { sizeExceeded, files, totalBytes };
   }
 
   async function prepareDataDirCheckpoint(php, rawPhp) {
@@ -250,7 +265,7 @@ export function createSnapshotManager({
       NEXTCLOUD_DATA_DIR,
       maxCrashDataDirBytes,
     );
-    if (fallback.exceeded) {
+    if (fallback.sizeExceeded) {
       postShell({
         kind: "error",
         detail: `[snapshot] bounded data-dir fallback exceeds ${formatKB(maxCrashDataDirBytes)}KB; skipping live snapshot`,

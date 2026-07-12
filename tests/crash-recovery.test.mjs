@@ -9,7 +9,7 @@ import {
   DEFAULT_MAX_CRASH_DATA_DIR_BYTES,
 } from "../src/runtime/crash-recovery.js";
 
-function createFs(entries = {}) {
+function createTestFs(entries = {}) {
   const files = new Map(
     Object.entries(entries).map(([path, value]) => [
       path,
@@ -146,7 +146,7 @@ test("snapshot manager uses a bounded in-memory data-dir fallback when persisten
     postShell() {},
   });
   const php = {
-    _php: createFs({
+    _php: createTestFs({
       [PLAYGROUND_DB_PATH]: [1, 2, 3],
       "/www/nextcloud/data/admin/files/doc.txt": [9, 8, 7],
     }),
@@ -179,7 +179,7 @@ test("snapshot manager rejects oversized in-memory data-dir fallbacks", async ()
     postShell() {},
     maxCrashDataDirBytes: 8,
   });
-  const rawPhp = createFs({
+  const rawPhp = createTestFs({
     [PLAYGROUND_DB_PATH]: [1, 2, 3],
     "/www/nextcloud/data/admin/files/big.bin": new Uint8Array(16),
   });
