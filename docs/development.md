@@ -45,8 +45,8 @@ Responsibilities:
    **MEMFS** under the Nextcloud root (`src/runtime/vfs.js`). The Phase-0 spike
    instead mounts the source over **NODEFS** (no copy) in Node; the browser must
    extract into MEMFS, which is the bundle-size constraint.
-4. **Create the mutable layout** — data directory, SQLite location, sessions,
-   under `/persist/...`.
+4. **Create the mutable layout** — the Nextcloud data/config directories plus
+   persisted session state.
 5. **Write config and the PHP prepend.** `auto_prepend_file` installs the
    **posix polyfill** and per-request server setup (`src/runtime/php-prepend.js`,
    written to `/internal/shared/auto_prepend_file.php` — the only path `@php-wasm`
@@ -87,9 +87,9 @@ as text and breaks `declare(strict_types=1)`. Run a shebang-free wrapper as the
 
 - **Readonly core** — mounted into MEMFS under the Nextcloud root (never copied
   into persistent storage wholesale).
-- **Mutable data dir + SQLite** — under `/persist/...`, journalled to browser
-  persistence; ephemeral by default.
-- **Sessions** — file-based under the persisted session path.
+- **Mutable data dir + SQLite** — under the Nextcloud runtime tree, journalled
+  to browser persistence alongside the mutable config and session state.
+- **Sessions** — file-based under `/persist/...`.
 
 ## Build pipeline
 

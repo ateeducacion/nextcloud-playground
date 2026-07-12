@@ -9,6 +9,7 @@ const INTERNAL_PROXY_PATH = "/__playground_proxy__";
 // generations. This is distinct from STATIC_ASSET_CACHE below, which caches the
 // scoped, PHP-served page assets.
 const STATIC_DIST_CACHE = `fs-dist-${BUILD_VERSION}`;
+const STATIC_ASSET_CACHE_PREFIX = "fs-static-assets-";
 const CACHEABLE_DIST_RE = /\/dist\/[^/]+\.(?:wasm|so)$/u;
 let addonProxyUrlOverride = null;
 let playgroundConfigPromise;
@@ -19,8 +20,9 @@ const clientContexts = new Map();
 
 // Static assets served via PHP are cached after the first request to avoid
 // re-queuing them through the serial PHP worker on every page navigation.
-const STATIC_ASSET_CACHE = "fs-static-assets-v1";
-const STATIC_ASSET_RE = /\.(css|js|woff2?|ttf|otf|eot|png|jpg|jpeg|gif|svg|ico|webp|map)$/iu;
+const STATIC_ASSET_CACHE = `${STATIC_ASSET_CACHE_PREFIX}${BUILD_VERSION}`;
+const STATIC_ASSET_RE =
+  /\.(css|js|mjs|woff2?|ttf|otf|eot|png|jpg|jpeg|gif|svg|ico|webp|map)$/iu;
 
 function isStaticAssetPath(requestPath) {
   return STATIC_ASSET_RE.test(requestPath.split("?")[0]);
@@ -62,10 +64,16 @@ const STATIC_PREFIXES = [
   "/favicon.ico",
 ];
 
+let cachedAppBasePath = null;
 function getAppBasePath() {
+  if (cachedAppBasePath !== null) {
+    return cachedAppBasePath;
+  }
   const scopeUrl = new URL(self.registration.scope);
   const pathname = scopeUrl.pathname;
-  return pathname.endsWith("/") ? pathname.slice(0, -1) || "/" : pathname || "/";
+  cachedAppBasePath =
+    pathname.endsWith("/") ? pathname.slice(0, -1) || "/" : pathname || "/";
+  return cachedAppBasePath;
 }
 
 function stripAppBasePath(pathname) {
@@ -527,7 +535,9 @@ self.addEventListener("activate", (event) => {
         names
           .filter(
             (name) =>
-              name.startsWith("fs-dist-") && name !== STATIC_DIST_CACHE,
+              (name.startsWith("fs-dist-") && name !== STATIC_DIST_CACHE) ||
+              (name.startsWith(STATIC_ASSET_CACHE_PREFIX) &&
+                name !== STATIC_ASSET_CACHE),
           )
           .map((name) => caches.delete(name)),
       );

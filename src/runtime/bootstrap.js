@@ -159,7 +159,7 @@ export async function bootstrapNextcloud({
     max_execution_time: "0",
     "date.timezone": config.timezone || "UTC",
     display_errors: config.debug?.enabled ? "On" : "Off",
-    "session.save_path": "/tmp",
+    "session.save_path": "/persist/mutable/session",
     upload_tmp_dir: "/tmp",
   });
 

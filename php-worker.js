@@ -33,6 +33,7 @@ let forceCleanBoot = false;
 
 const MAX_REACTIVE_RESTARTS = 20;
 const MIN_REQUESTS_BEFORE_RESTART = 10;
+const RUNTIME_HIGH_WATERMARK_REQUESTS = 1500;
 let requestCount = 0;
 let reactiveRestartCount = 0;
 
@@ -300,6 +301,15 @@ function installBridgeListener() {
 
       try {
         requestCount += 1;
+        if (requestCount === RUNTIME_HIGH_WATERMARK_REQUESTS) {
+          postShell({
+            kind: "log",
+            level: "warn",
+            message:
+              `[perf] Request count reached ${RUNTIME_HIGH_WATERMARK_REQUESTS}. ` +
+              "Long-lived tab may benefit from a manual Reset Playground to release accumulated memory.",
+          });
+        }
         const state = await getRuntimeState();
         const response = await executePhpRequest(state, data.request);
         respond({
