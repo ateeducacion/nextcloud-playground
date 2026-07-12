@@ -6,7 +6,7 @@ import {
 } from "../src/runtime/bootstrap-paths.js";
 import { createSnapshotManager } from "../src/runtime/crash-recovery.js";
 
-const DEFAULT_LIMIT = 16 * 1024 * 1024;
+const DEFAULT_MAX_CRASH_DATA_DIR_BYTES = 16 * 1024 * 1024;
 
 function createFs(entries = {}) {
   const files = new Map(
@@ -96,7 +96,10 @@ test("snapshot manager checkpoints pending data-dir ops before reading the DB", 
 
   assert.equal(result.captured, true);
   assert.deepEqual(flushCalls, [
-    { pathPrefix: NEXTCLOUD_DATA_DIR, maxBytes: DEFAULT_LIMIT },
+    {
+      pathPrefix: NEXTCLOUD_DATA_DIR,
+      maxBytes: DEFAULT_MAX_CRASH_DATA_DIR_BYTES,
+    },
   ]);
   assert.equal(
     messages.some((message) =>
@@ -118,7 +121,7 @@ test("snapshot manager does not capture a newer DB when the data-dir checkpoint 
       enabled: true,
       ok: false,
       reason: "size-limit",
-      estimatedBytes: DEFAULT_LIMIT + 1,
+      estimatedBytes: DEFAULT_MAX_CRASH_DATA_DIR_BYTES + 1,
     }),
     _php: {
       readFileAsBuffer() {

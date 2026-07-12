@@ -18,19 +18,19 @@ const MUTABLE_PATH_PREFIXES = [
   NEXTCLOUD_DATA_DIR,
 ];
 
-function pathMatchesPrefix(path, pathPrefix) {
+function isPathUnderPrefix(path, pathPrefix) {
   if (!pathPrefix) return true;
   const normalizedPrefix = String(pathPrefix).replace(/\/$/u, "");
   return path === normalizedPrefix || path.startsWith(`${normalizedPrefix}/`);
 }
 
 export function operationTouchesPathPrefix(operation, pathPrefix) {
-  if (pathMatchesPrefix(operation?.path || "", pathPrefix)) {
+  if (isPathUnderPrefix(operation?.path || "", pathPrefix)) {
     return true;
   }
   return (
     operation?.operation === "RENAME" &&
-    pathMatchesPrefix(operation.toPath || "", pathPrefix)
+    isPathUnderPrefix(operation.toPath || "", pathPrefix)
   );
 }
 
