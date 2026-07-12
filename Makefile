@@ -3,7 +3,7 @@ NC_MAJOR ?= 33
 NC_RELEASE ?= latest-33
 
 .PHONY: help up deps prepare bundle bundle-all bundle-30 bundle-31 bundle-32 bundle-33 \
-        serve test test-e2e lint format clean reset
+        serve test test-e2e lint format clean reset perf-compare
 
 help:
 	@printf '%s\n' 'Nextcloud Playground Make targets:' '' \
@@ -18,10 +18,12 @@ help:
 	  '  make lint        Run Biome linter' \
 	  '  make format      Auto-fix lint and formatting issues' \
 	  '  make clean       Remove generated caches and bundle artifacts' \
-	  '  make reset       Alias of clean plus cache reset' '' \
+	  '  make reset       Alias of clean plus cache reset' \
+	  '  make perf-compare  Compare boot performance of two deployments (see docs)' '' \
 	  'Common overrides:' \
 	  '  PORT=9090 make serve' \
-	  '  NC_MAJOR=32 NC_RELEASE=latest-32 make bundle'
+	  '  NC_MAJOR=32 NC_RELEASE=latest-32 make bundle' \
+	  '  BASE=... CANDIDATE=... ITERATIONS=5 make perf-compare'
 
 deps:
 	npm install
@@ -76,3 +78,24 @@ clean:
 
 reset: clean
 	rm -rf .cache
+
+# Performance comparison helper (boot time of two deployments).
+# Primary usage (recommended for full control):
+#   node scripts/perf-compare.mjs \
+#     --base=https://nextcloud-playground.pages.dev/ \
+#     --candidate=https://<your-pr>.nextcloud-playground.pages.dev/ \
+#     --iterations=5
+#
+# Convenience via make (basic case):
+#   BASE=... CANDIDATE=... ITERATIONS=5 make perf-compare
+perf-compare:
+	@if [ -z "$(BASE)" ] || [ -z "$(CANDIDATE)" ]; then \
+		echo 'Usage: BASE=<url> CANDIDATE=<url> [ITERATIONS=N] make perf-compare'; \
+		echo 'For advanced flags use the node script directly (see docs/development.md).'; \
+		exit 1; \
+	fi
+	node scripts/perf-compare.mjs \
+		--base="$(BASE)" \
+		--candidate="$(CANDIDATE)" \
+		--iterations=$(or $(ITERATIONS),3)
+
