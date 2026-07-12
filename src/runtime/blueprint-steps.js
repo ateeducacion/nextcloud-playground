@@ -1,4 +1,6 @@
 import {
+  detectArchiveKind,
+  extractTarGzEntries,
   extractZipEntries,
   fetchWithProgress,
   writeEntriesToPhp,
@@ -70,16 +72,17 @@ function reRootEntriesToApp(entries) {
  *   - { step: "createGroup", group }           → occ group:add <group>
  *   - { step: "addUserToGroup", username, group } → occ group:adduser <group> <username>
  *   - { step: "setConfig", key, value, app? }  → occ config:system:set | config:app:set
- *   - { step: "installApp", appId, url, enable? } → fetch ZIP, extract into
- *       apps/<appId>, then occ app:enable --force <appId>
+ *   - { step: "installApp", appId, url, enable? } → fetch a ZIP or gzip-tar
+ *       (Nextcloud's own app/appstore packaging is always the latter), extract
+ *       into apps/<appId>, then occ app:enable --force <appId>
  *   - { step: "writeFile", path, content|url, encoding? } → write a file into
  *       the instance (content inline, or fetched from url; path relative to the
  *       Nextcloud root, or absolute)
- *   - { step: "unzip", url, destination }      → fetch a ZIP and extract it into
- *       destination (relative to the Nextcloud root, or absolute), stripping a
- *       single top-level wrapper folder. Overlays a standalone bundle (e.g. the
- *       eXeLearning static editor) into an already-installed app, mirroring
- *       moodle-playground's editor overlay.
+ *   - { step: "unzip", url, destination }      → fetch a ZIP or gzip-tar and
+ *       extract it into destination (relative to the Nextcloud root, or
+ *       absolute), stripping a single top-level wrapper folder. Overlays a
+ *       standalone bundle (e.g. the eXeLearning static editor) into an
+ *       already-installed app, mirroring moodle-playground's editor overlay.
  *   - { step: "runOcc", args: [...] }          → occ <args...>
  *
  * Each step is best-effort: a failing step is reported via publish() but does
@@ -188,32 +191,15 @@ export async function executeBlueprintSteps({ php, blueprint, publish }) {
               );
             }
           });
-          // Hand the zip to PHP and extract it there with ZipArchive. libzip
-          // inflates + writes one entry at a time, so a big app (the ~70MB /
-          // 3000+ file eXeLearning editor) no longer needs the whole tree
-          // decompressed in JS at once — the JS path peaked at
-          // compressed + full-decompressed-tree + MEMFS copy and OOM'd /
-          // partially installed on constrained clients. The zip lives in MEMFS
-          // so the JS fallback below can read it back without re-downloading.
-          const tmpZip = `/tmp/${appId}-install.zip`;
-          const stage = `/tmp/${appId}-stage`;
-          await php.writeFile(tmpZip, bytes);
-          bytes = null; // released; PHP reads the zip from MEMFS
           publish(`Installing app ${appId}.`, ratio);
-          const exRes = await php.run(
-            buildZipExtractScript(appId, tmpZip, stage),
-          );
-          const exOut = decoder.decode(exRes.bytes || new Uint8Array()).trim();
-          if (!exOut.includes("INSTALL_OK")) {
-            // ext/zip missing or extraction failed: fall back to the JS path,
-            // reading the zip back from MEMFS. This re-incurs the higher JS
-            // peak, but only when PHP extraction is unavailable.
-            publish(
-              `[warning] PHP extraction unavailable for ${appId} (${exOut.slice(0, 80)}); using JS fallback.`,
-              ratio,
-            );
-            const fallbackBytes = await php.readFile(tmpZip);
-            const allEntries = extractZipEntries(fallbackBytes);
+          // Nextcloud's own app/appstore packaging (`make dist` / `make
+          // appstore`) produces a gzip tar, not a ZIP — ZipArchive can't open
+          // it, so route by magic bytes instead of assuming ZIP. Packages are
+          // a few MB (not the ~70MB eXeLearning editor), so a single in-memory
+          // pass is fine; no PHP-side / streaming tier is needed here.
+          if (detectArchiveKind(bytes) === "gzip") {
+            const allEntries = await extractTarGzEntries(bytes);
+            bytes = null;
             const appEntries = reRootEntriesToApp(allEntries) || allEntries;
             const binary = await php.binary;
             const fsHost = binary?.FS ? { FS: binary.FS } : php;
@@ -222,9 +208,47 @@ export async function executeBlueprintSteps({ php, blueprint, publish }) {
               appEntries,
               `${NEXTCLOUD_ROOT}/apps/${appId}`,
             );
-            try {
-              await php.run(`<?php @unlink('${tmpZip}');`);
-            } catch {}
+          } else {
+            // Hand the zip to PHP and extract it there with ZipArchive. libzip
+            // inflates + writes one entry at a time, so a big app (the ~70MB /
+            // 3000+ file eXeLearning editor) no longer needs the whole tree
+            // decompressed in JS at once — the JS path peaked at
+            // compressed + full-decompressed-tree + MEMFS copy and OOM'd /
+            // partially installed on constrained clients. The zip lives in
+            // MEMFS so the JS fallback below can read it back without
+            // re-downloading.
+            const tmpZip = `/tmp/${appId}-install.zip`;
+            const stage = `/tmp/${appId}-stage`;
+            await php.writeFile(tmpZip, bytes);
+            bytes = null; // released; PHP reads the zip from MEMFS
+            const exRes = await php.run(
+              buildZipExtractScript(appId, tmpZip, stage),
+            );
+            const exOut = decoder
+              .decode(exRes.bytes || new Uint8Array())
+              .trim();
+            if (!exOut.includes("INSTALL_OK")) {
+              // ext/zip missing or extraction failed: fall back to the JS path,
+              // reading the zip back from MEMFS. This re-incurs the higher JS
+              // peak, but only when PHP extraction is unavailable.
+              publish(
+                `[warning] PHP extraction unavailable for ${appId} (${exOut.slice(0, 80)}); using JS fallback.`,
+                ratio,
+              );
+              const fallbackBytes = await php.readFile(tmpZip);
+              const allEntries = extractZipEntries(fallbackBytes);
+              const appEntries = reRootEntriesToApp(allEntries) || allEntries;
+              const binary = await php.binary;
+              const fsHost = binary?.FS ? { FS: binary.FS } : php;
+              writeEntriesToPhp(
+                fsHost,
+                appEntries,
+                `${NEXTCLOUD_ROOT}/apps/${appId}`,
+              );
+              try {
+                await php.run(`<?php @unlink('${tmpZip}');`);
+              } catch {}
+            }
           }
           if (step.enable !== false) {
             publish(`Enabling app: ${appId}`, ratio);
@@ -291,36 +315,49 @@ export async function executeBlueprintSteps({ php, blueprint, publish }) {
               );
             }
           });
-          // Same low-memory path as installApp: hand the zip to PHP and extract
-          // it there with ZipArchive (one entry at a time) so a big bundle like
-          // the ~70MB / 3000+ file eXeLearning editor doesn't OOM constrained
-          // clients. The zip stays in MEMFS so the JS fallback can read it back.
-          const tmpZip = `/tmp/unzip-${i}.zip`;
-          const stage = `/tmp/unzip-${i}-stage`;
-          await php.writeFile(tmpZip, bytes);
-          bytes = null; // released; PHP reads the zip from MEMFS
           publish(`Extracting archive to ${destRaw}.`, ratio);
-          const exRes = await php.run(
-            buildUnzipScript(tmpZip, stage, destination),
-          );
-          const exOut = decoder.decode(exRes.bytes || new Uint8Array()).trim();
-          if (!exOut.includes("UNZIP_OK")) {
-            // ext/zip missing or extraction failed: fall back to the JS path,
-            // reading the zip back from MEMFS. extractZipEntries strips a single
-            // common leading folder (the editor's "static/"), matching the PHP
-            // extractor above.
-            publish(
-              `[warning] PHP extraction unavailable for ${destRaw} (${exOut.slice(0, 80)}); using JS fallback.`,
-              ratio,
-            );
-            const fallbackBytes = await php.readFile(tmpZip);
-            const entries = extractZipEntries(fallbackBytes);
+          // Route by magic bytes: Nextcloud app/appstore packaging produces a
+          // gzip tar, which ZipArchive can't open (see installApp above).
+          if (detectArchiveKind(bytes) === "gzip") {
+            const entries = await extractTarGzEntries(bytes);
+            bytes = null;
             const binary = await php.binary;
             const fsHost = binary?.FS ? { FS: binary.FS } : php;
             writeEntriesToPhp(fsHost, entries, destination);
-            try {
-              await php.run(`<?php @unlink('${tmpZip}');`);
-            } catch {}
+          } else {
+            // Same low-memory path as installApp: hand the zip to PHP and
+            // extract it there with ZipArchive (one entry at a time) so a big
+            // bundle like the ~70MB / 3000+ file eXeLearning editor doesn't
+            // OOM constrained clients. The zip stays in MEMFS so the JS
+            // fallback can read it back.
+            const tmpZip = `/tmp/unzip-${i}.zip`;
+            const stage = `/tmp/unzip-${i}-stage`;
+            await php.writeFile(tmpZip, bytes);
+            bytes = null; // released; PHP reads the zip from MEMFS
+            const exRes = await php.run(
+              buildUnzipScript(tmpZip, stage, destination),
+            );
+            const exOut = decoder
+              .decode(exRes.bytes || new Uint8Array())
+              .trim();
+            if (!exOut.includes("UNZIP_OK")) {
+              // ext/zip missing or extraction failed: fall back to the JS path,
+              // reading the zip back from MEMFS. extractZipEntries strips a
+              // single common leading folder (the editor's "static/"),
+              // matching the PHP extractor above.
+              publish(
+                `[warning] PHP extraction unavailable for ${destRaw} (${exOut.slice(0, 80)}); using JS fallback.`,
+                ratio,
+              );
+              const fallbackBytes = await php.readFile(tmpZip);
+              const entries = extractZipEntries(fallbackBytes);
+              const binary = await php.binary;
+              const fsHost = binary?.FS ? { FS: binary.FS } : php;
+              writeEntriesToPhp(fsHost, entries, destination);
+              try {
+                await php.run(`<?php @unlink('${tmpZip}');`);
+              } catch {}
+            }
           }
           break;
         }
