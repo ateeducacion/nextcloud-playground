@@ -240,7 +240,10 @@ async function bootstrapRemote() {
   if (navigator.serviceWorker.controller) {
     navigator.serviceWorker.controller.postMessage({
       kind: "configure-service-worker",
+      scopeId,
       addonProxyUrl: config.addonProxyUrl || null,
+      sandboxedIframeCompatibility:
+        blueprint.browserCompatibility?.sandboxedIframes === "service-worker",
     });
   }
 

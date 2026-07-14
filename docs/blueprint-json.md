@@ -39,6 +39,7 @@ http://localhost:8085/?blueprint-url=https://example.com/demo.blueprint.json
 | `$schema` | Schema reference | Optional but recommended. |
 | `meta` | Descriptive metadata | `title`, `author`, `description`. |
 | `debug.enabled` | Show PHP errors | Diagnostics only. |
+| `browserCompatibility.sandboxedIframes` | Sandboxed app iframe handling | `strict` (default) or the explicit `service-worker` workaround described below. |
 | `landingPage` | Entry route | Normalized to start with `/` (e.g. `/index.php/apps/dashboard/`). |
 | `siteOptions` | Instance options | `title`, `locale`, `timezone`. |
 | `login` | Effective admin credentials | `username`, `password`. |
@@ -70,6 +71,25 @@ http://localhost:8085/?blueprint-url=https://example.com/demo.blueprint.json
   ]
 }
 ```
+
+### Sandboxed app iframe compatibility
+
+The default `browserCompatibility.sandboxedIframes` mode is `strict`. Some
+trusted apps load a same-origin iframe with both `allow-same-origin` and the
+`credentialless` attribute. That ephemeral browser context cannot use
+Playground's Service Worker, so its PHP routes and packaged assets fail to
+load. Such blueprints can opt into the workaround:
+
+```json
+{
+  "browserCompatibility": { "sandboxedIframes": "service-worker" }
+}
+```
+
+In this mode Playground removes `credentialless` only from scoped app iframes
+that already declare `allow-same-origin`. It does not grant that sandbox token.
+Removing the ephemeral context reduces iframe isolation, so only enable the
+mode for trusted app code.
 
 ## Step reference
 

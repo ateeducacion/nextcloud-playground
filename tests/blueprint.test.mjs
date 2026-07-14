@@ -75,6 +75,20 @@ describe("normalizeBlueprint", () => {
     assert.equal(bp.admin.username, "root");
     assert.equal(bp.admin.password, "secret");
   });
+
+  it("keeps sandboxed iframe compatibility opt-in", () => {
+    assert.equal(
+      normalizeBlueprint({}, baseConfig).browserCompatibility.sandboxedIframes,
+      "strict",
+    );
+    assert.equal(
+      normalizeBlueprint(
+        { browserCompatibility: { sandboxedIframes: "service-worker" } },
+        baseConfig,
+      ).browserCompatibility.sandboxedIframes,
+      "service-worker",
+    );
+  });
 });
 
 describe("buildEffectivePlaygroundConfig", () => {
