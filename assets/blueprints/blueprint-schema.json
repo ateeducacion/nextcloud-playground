@@ -19,6 +19,18 @@
       "type": "object",
       "properties": { "enabled": { "type": "boolean" } }
     },
+    "browserCompatibility": {
+      "type": "object",
+      "description": "Explicit browser workarounds for trusted apps.",
+      "properties": {
+        "sandboxedIframes": {
+          "type": "string",
+          "enum": ["strict", "service-worker"],
+          "default": "strict",
+          "description": "service-worker removes credentialless from same-origin sandboxed app frames that already opt into allow-same-origin, allowing their resources to use the Playground Service Worker. This reduces iframe isolation and should only be enabled for trusted apps."
+        }
+      }
+    },
     "landingPage": {
       "type": "string",
       "description": "Path to open after boot, e.g. /index.php/apps/dashboard or /index.php/login."

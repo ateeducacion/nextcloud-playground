@@ -1,5 +1,10 @@
 import { BUILD_VERSION } from "./src/generated/build-version.js";
 import { createPhpBridgeChannel, createWorkerRequestId } from "./src/shared/protocol.js";
+import {
+  buildSandboxedIframeCompatibilityScript,
+  consumeSandboxCompatibility,
+  preserveSandboxCompatibilityRedirect,
+} from "./src/shared/sandboxed-iframes.js";
 
 const INTERNAL_PROXY_PATH = "/__playground_proxy__";
 // Cache-first store for the immutable, hash-named runtime assets under /dist/
@@ -17,6 +22,7 @@ let playgroundConfigPromise;
 const bridges = new Map();
 const pending = new Map();
 const clientContexts = new Map();
+const sandboxedIframeCompatibilityScopes = new Set();
 
 // Static assets served via PHP are cached after the first request to avoid
 // re-queuing them through the serial PHP worker on every page navigation.
@@ -387,6 +393,14 @@ function rewriteHtmlDocument(html, scope) {
     (match, prefix, rawValue, suffix) => `${prefix}${escapeHtml(rewriteHtmlAttributeUrl(rawValue, scope))}${suffix}`,
   );
 
+  // Compatibility navigations are nested app-owned documents. Their HTML URLs
+  // were rewritten above, but keep their real parent and their own CSP intact.
+  // Injecting an inline script here would be rejected by apps that do not
+  // expose Nextcloud's top-level CSP nonce.
+  if (scope.sandboxedIframe) {
+    return result;
+  }
+
   // Nextcloud uses parent.document.location in its JS for row-click navigation.
   // Inside the playground iframe, parent is remote.html — not the Nextcloud
   // page — so the click navigates remote.html away and breaks everything.
@@ -429,6 +443,13 @@ function rewriteHtmlDocument(html, scope) {
   // and the Apps settings page show nothing. Rewrite the emitted webroot to the
   // scoped base so generateUrl()/router bases match the real location.
   const scopedBase = getScopedBasePath(scope.scopeId, scope.runtimeId);
+  if (sandboxedIframeCompatibilityScopes.has(scope.scopeId)) {
+    const sandboxedIframeShim = `<script${nonceAttr}>${buildSandboxedIframeCompatibilityScript(scopedBase)}</script>`;
+    result = result.replace(
+      /<head([^>]*)>/iu,
+      `<head$1>${sandboxedIframeShim}`,
+    );
+  }
   result = result.replace(
     /var _oc_webroot\s*=\s*"[^"]*";/u,
     `var _oc_webroot=${JSON.stringify(scopedBase)};`,
@@ -515,6 +536,11 @@ function forwardToPhpWorker({ serializedRequest, runtimeId, scopeId }) {
 self.addEventListener("message", (event) => {
   if (event.data?.kind === "configure-service-worker") {
     addonProxyUrlOverride = event.data.addonProxyUrl || null;
+    if (event.data.sandboxedIframeCompatibility && event.data.scopeId) {
+      sandboxedIframeCompatibilityScopes.add(event.data.scopeId);
+    } else if (event.data.scopeId) {
+      sandboxedIframeCompatibilityScopes.delete(event.data.scopeId);
+    }
     return;
   }
   if (event.data?.kind === "clear-static-cache") {
@@ -586,7 +612,7 @@ self.addEventListener("fetch", (event) => {
       return fetch(event.request);
     }
 
-    const { scopeId, runtimeId, requestPath } = scopedRequest;
+    const { scopeId, runtimeId } = scopedRequest;
     if (event.clientId) {
       clientContexts.set(event.clientId, { scopeId, runtimeId });
     }
@@ -595,6 +621,11 @@ self.addEventListener("fetch", (event) => {
     if (!directScoped && event.request.mode === "navigate" && event.request.method === "GET") {
       return Response.redirect(buildScopedUrl(url, scopedRequest), 302);
     }
+
+    const sandboxCompatibility = consumeSandboxCompatibility(
+      scopedRequest.requestPath,
+    );
+    const requestPath = sandboxCompatibility.requestPath;
 
     const forwardedUrl = new URL(requestPath, `${url.origin}/`);
 
@@ -634,10 +665,16 @@ self.addEventListener("fetch", (event) => {
       scopeId,
       runtimeId,
     });
-    return rewriteScopedBodyResponse(locationScopedResponse, {
+    const redirectCompatibleResponse = preserveSandboxCompatibilityRedirect(
+      locationScopedResponse,
+      sandboxCompatibility.compatible,
+      url.origin,
+    );
+    return rewriteScopedBodyResponse(redirectCompatibleResponse, {
       origin: url.origin,
       scopeId,
       runtimeId,
+      sandboxedIframe: sandboxCompatibility.compatible,
     });
   })());
 });

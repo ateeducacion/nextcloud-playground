@@ -10,17 +10,31 @@
 //
 // 1. Generic proxy mode (legacy): ?url={full_url}
 //    Proxies supported direct URLs with CORS headers. This includes ZIP downloads,
-//    GitHub-hosted text/binary resources, Nextcloud plugin pages, and
-//    omeka.org / dev.omeka.org resources (plugin/module pages and downloads).
+//    GitHub-hosted text/binary resources, FacturaScripts plugin pages,
+//    omeka.org / dev.omeka.org resources (plugin/module pages and downloads), and
+//    Nextcloud / ownCloud public share links (/s/{token}[/download]) on any host.
 //
-// 2. GitHub proxy mode: ?repo={owner/repo}[&branch=...][&pr=...][&commit=...][&release=...][&asset=...][&atom=...]
+// 2. GitHub proxy mode: ?repo={owner/repo}[&branch=...][&pr=...][&commit=...][&release=...][&asset=...][&asset-pattern=...][&atom=...][&path=...]
 //    Builds the correct GitHub URL from semantic parameters and proxies the response.
+//    With &path={file} it serves a single raw file at the given ref (default
+//    branch when no ref is given) with CORS — e.g. a blueprint.json living in
+//    the repo. The ref travels as a query param, so refs with slashes
+//    (feat/x) are handled losslessly.
+//    &release=latest resolves the repo's current latest release via the
+//    GitHub API instead of a fixed tag. &asset-pattern={glob} picks a release
+//    asset by a shell-style glob (e.g. "epubviewer-*.tar.gz") instead of an
+//    exact &asset= filename, so a blueprint URL keeps working release after
+//    release without pinning a version. Both require a successful GitHub API
+//    call — unlike &asset= with an exact &release= tag, there is no
+//    deterministic direct-download URL to fall back to when the tag or asset
+//    name isn't known up front.
 //
 // Environment variables (optional):
 //   GITHUB_TOKEN – A GitHub personal access token to raise API rate limits from 60 to 5000 req/hour.
 
 const GITHUB_API = "https://api.github.com";
 const GITHUB_BASE = "https://github.com";
+const GITHUB_RAW = "https://raw.githubusercontent.com";
 
 export default {
   async fetch(request, env) {
@@ -42,7 +56,7 @@ export default {
 
     // Legacy generic proxy mode
     if (params.has("url")) {
-      return handleGenericProxy(params.get("url"), request, env);
+      return handleGenericProxy(params.get("url"), request);
     }
 
     // GitHub proxy mode
@@ -69,8 +83,11 @@ export default {
           branch: "?repo={owner/repo}[&branch={branch}]",
           pr: "?repo={owner/repo}&pr={number}",
           commit: "?repo={owner/repo}&commit={sha}",
-          release: "?repo={owner/repo}&release={tag}",
-          asset: "?repo={owner/repo}&release={tag}&asset={filename}",
+          release: "?repo={owner/repo}&release={tag|latest}",
+          asset: "?repo={owner/repo}&release={tag|latest}&asset={filename}",
+          asset_pattern:
+            "?repo={owner/repo}&release={tag|latest}&asset-pattern={glob}",
+          raw_file: "?repo={owner/repo}&path={path}[&branch={branch}]",
           atom_releases: "?repo={owner/repo}&atom=releases",
           atom_tags: "?repo={owner/repo}&atom=tags",
         },
@@ -91,26 +108,43 @@ async function handleGitHubProxy(params, env) {
     return jsonResponse({ error: "Invalid repo format. Use owner/repo." }, 400);
   }
 
+  // Raw file at a ref (e.g. a blueprint.json checked into the repo), served
+  // with CORS. The ref is a query param, so refs with slashes work. Resolves
+  // the ref from branch/ref/commit/release, falling back to the default branch.
+  if (params.has("path")) {
+    const ref =
+      params.get("branch") ||
+      params.get("ref") ||
+      params.get("commit") ||
+      params.get("release") ||
+      (await getDefaultBranch(repo, env)) ||
+      "main";
+    return proxyRawFile(repo, ref, params.get("path"));
+  }
+
   // Atom feeds
   if (params.has("atom")) {
     return handleAtomFeed(repo, params.get("atom"));
   }
 
-  // Release asset
-  if (params.has("release") && params.has("asset")) {
+  // Release asset (exact filename, or a glob via &asset-pattern=)
+  if (
+    params.has("release") &&
+    (params.has("asset") || params.has("asset-pattern"))
+  ) {
     return handleReleaseAsset(
       repo,
       params.get("release"),
       params.get("asset"),
       env,
+      null,
+      params.get("asset-pattern"),
     );
   }
 
   // Full release ZIP
   if (params.has("release")) {
-    return proxyGitHubZip(
-      `${GITHUB_BASE}/${repo}/archive/refs/tags/${params.get("release")}.zip`,
-    );
+    return handleReleaseZip(repo, params.get("release"), env);
   }
 
   // Specific commit
@@ -137,19 +171,38 @@ async function handleGitHubProxy(params, env) {
   // No branch specified – resolve the default branch via the API
   const defaultBranch = await getDefaultBranch(repo, env);
 
-  if (!defaultBranch) {
-    return jsonResponse(
-      {
-        error:
-          "Could not determine the default branch. Check that the repo exists and is public.",
-      },
-      502,
+  if (defaultBranch) {
+    return proxyGitHubZip(
+      `${GITHUB_BASE}/${repo}/archive/refs/heads/${defaultBranch}.zip`,
     );
   }
 
-  return proxyGitHubZip(
-    `${GITHUB_BASE}/${repo}/archive/refs/heads/${defaultBranch}.zip`,
-  );
+  // The API could not resolve the default branch (rate-limited, or the
+  // GITHUB_TOKEN is blocked for this repo by an org fine-grained-PAT policy).
+  // Fall back to the conventional branch names instead of failing outright.
+  return proxyFirstAvailableZip([
+    `${GITHUB_BASE}/${repo}/archive/refs/heads/main.zip`,
+    `${GITHUB_BASE}/${repo}/archive/refs/heads/master.zip`,
+  ]);
+}
+
+// Proxies the first candidate archive URL that resolves successfully, returning
+// the last failing response if none do. Used as a no-API fallback for
+// default-branch resolution.
+async function proxyFirstAvailableZip(urls) {
+  let lastResponse = null;
+
+  for (const url of urls) {
+    const response = await proxyGitHubZip(url);
+
+    if (response.status < 400) {
+      return response;
+    }
+
+    lastResponse = response;
+  }
+
+  return lastResponse;
 }
 
 // ---------------------------------------------------------------------------
@@ -207,6 +260,62 @@ async function handleAtomFeed(repo, type) {
 }
 
 // ---------------------------------------------------------------------------
+// Raw file resolution
+// ---------------------------------------------------------------------------
+
+// Fetches a single raw file from raw.githubusercontent.com and returns it with
+// CORS headers. Used to serve a repo's blueprint.json (or any small text/JSON
+// asset) cross-origin to the browser playground without inlining it in the URL.
+async function proxyRawFile(repo, ref, rawPath) {
+  const path = String(rawPath).replace(/^\/+/, "");
+  const url = `${GITHUB_RAW}/${repo}/${ref}/${path}`;
+
+  try {
+    // raw.githubusercontent.com serves directly (no redirect in practice), but
+    // validate any redirect hop against the GitHub host allowlist just in case.
+    const upstream = await fetchWithValidatedRedirects(
+      url,
+      { method: "GET", headers: { "User-Agent": "github-proxy-worker" } },
+      (candidate) =>
+        candidate.hostname === "raw.githubusercontent.com" ||
+        isGitHubDirectProxyUrl(candidate),
+    );
+
+    if (!upstream.ok) {
+      return jsonResponse(
+        {
+          error: "Upstream server returned an error.",
+          status: upstream.status,
+          statusText: upstream.statusText,
+        },
+        upstream.status === 404 ? 404 : 502,
+      );
+    }
+
+    const headers = new Headers();
+
+    applyCorsHeaders(headers);
+    headers.set(
+      "Content-Type",
+      path.toLowerCase().endsWith(".json")
+        ? "application/json; charset=utf-8"
+        : upstream.headers.get("Content-Type") || "text/plain; charset=utf-8",
+    );
+    headers.set("Cache-Control", "public, max-age=60");
+
+    return new Response(upstream.body, { status: 200, headers });
+  } catch (error) {
+    if (error instanceof RedirectBlockedError) {
+      return redirectBlockedResponse(error);
+    }
+    return jsonResponse(
+      { error: "Failed to fetch raw file.", details: error.message },
+      502,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Pull request resolution
 // ---------------------------------------------------------------------------
 
@@ -225,44 +334,141 @@ async function handlePullRequest(repo, prNumber, env) {
 }
 
 // ---------------------------------------------------------------------------
-// Release asset resolution
+// Release ZIP resolution (source archive)
 // ---------------------------------------------------------------------------
 
-async function handleReleaseAsset(repo, tag, assetName, env, request = null) {
-  const apiUrl = `${GITHUB_API}/repos/${repo}/releases/tags/${tag}`;
-  const data = await githubApiRequest(apiUrl, env);
+async function handleReleaseZip(repo, release, env) {
+  if (release !== "latest") {
+    return proxyGitHubZip(
+      `${GITHUB_BASE}/${repo}/archive/refs/tags/${release}.zip`,
+    );
+  }
 
-  if (!data?.assets) {
+  // Unlike a fixed tag, "latest" has no deterministic archive URL — it must
+  // be resolved through the API first.
+  const data = await githubApiRequest(
+    `${GITHUB_API}/repos/${repo}/releases/latest`,
+    env,
+  );
+
+  if (!data?.tag_name) {
     return jsonResponse(
       {
-        error: `Could not find release "${tag}".`,
-        upstream_status: 404,
-        upstream_status_text: "Not Found",
+        error:
+          "Could not resolve the latest release via the GitHub API (rate-limited or blocked).",
       },
       502,
     );
   }
 
-  const asset = data.assets.find(
-    (a) => a.name.toLowerCase() === assetName.toLowerCase(),
+  return proxyGitHubZip(
+    `${GITHUB_BASE}/${repo}/archive/refs/tags/${data.tag_name}.zip`,
   );
+}
 
-  if (!asset) {
-    const available = data.assets.map((a) => a.name);
+// ---------------------------------------------------------------------------
+// Release asset resolution
+// ---------------------------------------------------------------------------
 
+async function handleReleaseAsset(
+  repo,
+  tag,
+  assetName,
+  env,
+  request = null,
+  assetPattern = null,
+) {
+  const isLatest = tag === "latest";
+
+  // A release asset's browser_download_url is deterministic:
+  //   https://github.com/{repo}/releases/download/{tag}/{assetName}
+  // and 302s to the asset CDN with no API call. We query the API first only to
+  // surface a helpful "available_assets" list on a genuine typo — but we must
+  // NOT hard-depend on it. The API can be rate-limited, or the worker's
+  // GITHUB_TOKEN can be blocked for the repo (e.g. an org fine-grained-PAT
+  // policy 404s a public repo), which would otherwise turn every legitimate
+  // download into a 502 JSON body.
+  //
+  // That deterministic shortcut only exists for an EXACT tag + exact asset
+  // name. Resolving "latest" or matching &asset-pattern= both depend on
+  // reading the actual release/asset list back from the API, since neither
+  // the real tag nor the real filename is known up front.
+  const apiUrl = isLatest
+    ? `${GITHUB_API}/repos/${repo}/releases/latest`
+    : `${GITHUB_API}/repos/${repo}/releases/tags/${tag}`;
+
+  const data = await githubApiRequest(apiUrl, env);
+
+  // API reachable: validate/resolve the asset and use its canonical download URL.
+  if (data?.assets) {
+    const asset = assetPattern
+      ? findAssetByPattern(data.assets, assetPattern)
+      : data.assets.find(
+          (a) => a.name.toLowerCase() === assetName.toLowerCase(),
+        );
+
+    if (!asset) {
+      const available = data.assets.map((a) => a.name);
+      const releaseLabel = isLatest
+        ? `latest (${data.tag_name || "unknown tag"})`
+        : `"${tag}"`;
+
+      return jsonResponse(
+        {
+          error: assetPattern
+            ? `No asset matching pattern "${assetPattern}" found in release ${releaseLabel}.`
+            : `Asset "${assetName}" not found in release ${releaseLabel}.`,
+          available_assets: available,
+        },
+        404,
+      );
+    }
+
+    return proxyGitHubZip(asset.browser_download_url, {
+      request,
+      downloadFilename: asset.name,
+    });
+  }
+
+  // API unavailable/blocked. "latest" and asset-pattern have no deterministic
+  // fallback URL (the real tag/filename is unknown), so fail clearly instead
+  // of guessing.
+  if (isLatest || assetPattern) {
     return jsonResponse(
       {
-        error: `Asset "${assetName}" not found in release "${tag}".`,
-        available_assets: available,
+        error:
+          "Could not resolve the release via the GitHub API (rate-limited or blocked). Resolving 'latest' or an asset-pattern requires a successful API call.",
       },
-      404,
+      502,
     );
   }
 
-  return proxyGitHubZip(asset.browser_download_url, {
-    request,
-    downloadFilename: asset.name,
-  });
+  // Exact tag + exact asset name: fall back to the deterministic direct URL
+  // so the download still works without any api.github.com call.
+  const directUrl = `${GITHUB_BASE}/${repo}/releases/download/${encodeURIComponent(
+    tag,
+  )}/${encodeURIComponent(assetName)}`;
+
+  return proxyGitHubZip(directUrl, { request, downloadFilename: assetName });
+}
+
+// Matches a release asset name against a shell-style glob (only `*` and `?`
+// are wildcards; everything else is matched literally). Lets a blueprint URL
+// pin to an asset shape (e.g. "epubviewer-*.tar.gz") instead of an exact
+// versioned filename, so it keeps resolving across releases.
+function findAssetByPattern(assets, pattern) {
+  const regex = globToRegExp(pattern);
+
+  return assets.find((a) => regex.test(a.name));
+}
+
+function globToRegExp(pattern) {
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*/g, ".*")
+    .replace(/\?/g, ".");
+
+  return new RegExp(`^${escaped}$`, "iu");
 }
 
 // ---------------------------------------------------------------------------
@@ -479,7 +685,7 @@ async function proxyGitHubZip(
 // Legacy generic proxy mode
 // ---------------------------------------------------------------------------
 
-async function handleGenericProxy(targetUrl, request, env) {
+async function handleGenericProxy(targetUrl, request) {
   let parsedUrl;
 
   try {
@@ -507,11 +713,7 @@ async function handleGenericProxy(targetUrl, request, env) {
     );
   }
 
-  const translatedGitHubResponse = await maybeHandleDirectGitHubUrl(
-    parsedUrl,
-    env,
-    request,
-  );
+  const translatedGitHubResponse = await maybeHandleDirectGitHubUrl(parsedUrl);
   if (translatedGitHubResponse) {
     return translatedGitHubResponse;
   }
@@ -522,10 +724,27 @@ async function handleGenericProxy(targetUrl, request, env) {
     // Re-validate every redirect hop against the same generic-proxy allowlist
     // (and SSRF guard) that authorized the initial URL, so an allowlisted host
     // cannot 302 us into an internal or unsupported target.
+    //
+    // Nextcloud/ownCloud shares are the exception: GET /s/{token}/download
+    // 303-redirects to a signed DAV URL on the SAME host (e.g.
+    // /public.php/dav/files/{token}/), which does not match the public-share
+    // path shape. Authorize redirects that stay on the original share's host
+    // instead. The SSRF guard still runs for every hop.
+    //
+    // Dropbox shares redirect from www.dropbox.com to dl.dropboxusercontent.com
+    // (the CDN serving the actual file). Authorize that CDN host as a redirect
+    // target while still running the SSRF guard.
+    const isAuthorizedRedirect = isNextcloudShareUrl(parsedUrl)
+      ? (candidate) => candidate.hostname === parsedUrl.hostname
+      : isDropboxShareUrl(parsedUrl)
+        ? (candidate) =>
+            isSupportedGenericProxyUrl(candidate) || isDropboxCdnUrl(candidate)
+        : isSupportedGenericProxyUrl;
+
     const upstream = await fetchWithValidatedRedirects(
       parsedUrl.toString(),
       { method: "GET", headers: upstreamHeaders },
-      isSupportedGenericProxyUrl,
+      isAuthorizedRedirect,
     );
 
     if (!upstream.ok) {
@@ -636,12 +855,15 @@ function isSupportedGenericProxyUrl(url) {
 
   // Specific endpoint helpers authorize a URL regardless of its path shape.
   if (
-    isNextcloudPluginPage(url) ||
+    isFacturaScriptsPluginPage(url) ||
     isGitHubDirectProxyUrl(url) ||
     isGoogleDriveDirectFileUrl(url) ||
+    isNextcloudShareUrl(url) ||
+    isDropboxShareUrl(url) ||
     isOmekaOrgResourceUrl(url) ||
     isGitLabResourceUrl(url) ||
-    isJsDelivrResourceUrl(url)
+    isJsDelivrResourceUrl(url) ||
+    isMoodleLangpackUrl(url)
   ) {
     return true;
   }
@@ -657,9 +879,9 @@ function isSupportedGenericProxyUrl(url) {
 }
 
 // Hosts that may serve zip-like downloads through the generic proxy. Specific
-// endpoint helpers (GitHub, Google Drive, omeka, Nextcloud plugin pages)
+// endpoint helpers (GitHub, Google Drive, omeka, FacturaScripts plugin pages)
 // are checked separately; this list additionally authorizes zip-only paths
-// such as Nextcloud build downloads (`/downloadbuild/{n}/{channel}`).
+// such as FacturaScripts build downloads (`/downloadbuild/{n}/{channel}`).
 function isAllowlistedProxyHost(url) {
   const hostname = url.hostname.toLowerCase();
 
@@ -676,11 +898,33 @@ function isAllowlistedProxyHost(url) {
     hostname === "drive.usercontent.google.com" ||
     hostname === "omeka.org" ||
     hostname === "dev.omeka.org" ||
-    hostname === "nextcloud.com" ||
+    hostname === "facturascripts.com" ||
     hostname === "gitlab.com" ||
     hostname === "cdn.jsdelivr.net" ||
-    hostname === "data.jsdelivr.com"
+    hostname === "data.jsdelivr.com" ||
+    // Moodle language packs. `packaging.moodle.org` serves the actual ZIPs;
+    // `download.moodle.org/download.php/direct/langpack/...` 302-redirects to it
+    // (the redirect hop is re-validated, so both hosts must be allowlisted).
+    hostname === "packaging.moodle.org" ||
+    hostname === "download.moodle.org"
   );
+}
+
+// Moodle's `tool_langimport` first fetches the langpack index (`languages.md5`)
+// and then the per-language `<code>.zip`. The index file is not zip-like, so the
+// zip-only `isAllowlistedProxyHost` check would reject it. Authorize any
+// `/langpack/` path on the two Moodle hosts regardless of extension. The SSRF
+// guard in `isSupportedGenericProxyUrl` still runs first, and both hosts are
+// listed because `download.moodle.org` 302-redirects to `packaging.moodle.org`.
+function isMoodleLangpackUrl(url) {
+  const hostname = url.hostname.toLowerCase();
+  if (
+    hostname !== "download.moodle.org" &&
+    hostname !== "packaging.moodle.org"
+  ) {
+    return false;
+  }
+  return url.pathname.toLowerCase().includes("/langpack/");
 }
 
 // Reject hosts that resolve to private, loopback, or link-local addresses to
@@ -842,7 +1086,26 @@ function isGoogleDriveDirectFileUrl(url) {
   return false;
 }
 
+// Nextcloud / ownCloud public share links live on arbitrary self-hosted
+// domains, so they cannot be matched by a fixed host allowlist. Authorize them
+// instead by their well-known public-share path shape:
+//   /s/{token}                  (share page)
+//   /s/{token}/download         (direct download; what eXeViewer requests)
+//   /index.php/s/{token}[/download]   (pretty-URLs-disabled instances)
+// The SSRF guard (isPrivateOrLocalHost) is still enforced for every host and
+// redirect hop, so this is not an open proxy into internal infrastructure.
+const NEXTCLOUD_SHARE_PATH =
+  /^(?:\/index\.php)?\/s\/[A-Za-z0-9._-]+(?:\/download)?\/?$/u;
+
+function isNextcloudShareUrl(url) {
+  return NEXTCLOUD_SHARE_PATH.test(url.pathname);
+}
+
 function normalizeSupportedGenericProxyUrl(url) {
+  if (isNextcloudShareUrl(url)) {
+    return normalizeNextcloudShareUrl(url);
+  }
+
   if (!isGoogleDriveDirectFileUrl(url)) {
     return url;
   }
@@ -875,6 +1138,21 @@ function normalizeSupportedGenericProxyUrl(url) {
   return normalized;
 }
 
+// Rewrite a bare Nextcloud/ownCloud share page (/s/{token}) to its direct
+// download endpoint (/s/{token}/download). A URL that already targets /download
+// (or carries a path/files query selecting a file inside a folder share) is
+// returned unchanged.
+function normalizeNextcloudShareUrl(url) {
+  if (url.pathname.replace(/\/$/u, "").endsWith("/download")) {
+    return url;
+  }
+
+  const normalized = new URL(url.toString());
+  normalized.pathname = `${normalized.pathname.replace(/\/$/u, "")}/download`;
+
+  return normalized;
+}
+
 function extractGoogleDriveFileId(url) {
   const pathMatch = url.pathname.match(/^\/file\/d\/([^/]+)(?:\/|$)/u);
   if (pathMatch?.[1]) {
@@ -884,7 +1162,7 @@ function extractGoogleDriveFileId(url) {
   return url.searchParams.get("id");
 }
 
-async function maybeHandleDirectGitHubUrl(url, env, request) {
+function maybeHandleDirectGitHubUrl(url) {
   const repoMatch = matchGitHubRepoPath(url.pathname);
   if (!repoMatch) {
     return null;
@@ -900,20 +1178,13 @@ async function maybeHandleDirectGitHubUrl(url, env, request) {
     return handleAtomFeed(repo, "tags");
   }
 
-  const releaseAssetMatch = suffix.match(
-    /^\/releases\/download\/([^/]+)\/([^/]+)$/u,
-  );
-  if (releaseAssetMatch) {
-    const [, tag, assetName] = releaseAssetMatch;
-    return handleReleaseAsset(
-      repo,
-      decodeURIComponent(tag),
-      decodeURIComponent(assetName),
-      env,
-      request,
-    );
-  }
-
+  // NOTE: We deliberately do NOT intercept /releases/download/{tag}/{asset}
+  // URLs here. Routing them through handleReleaseAsset() means an api.github.com
+  // call to resolve the asset, which fails (returns null -> 502 JSON) whenever
+  // the API is rate-limited or the worker's GITHUB_TOKEN is blocked for the repo
+  // (e.g. an org's fine-grained-PAT policy 404s a public repo). A complete
+  // release-download URL is already an allowlisted github.com host that 302s to
+  // the asset CDN, so we let handleGenericProxy fetch it directly — no API call.
   return null;
 }
 
@@ -957,7 +1228,7 @@ function buildGenericProxyRequestHeaders(url, request) {
 }
 
 function defaultGenericAcceptHeader(url) {
-  if (isNextcloudPluginPage(url)) {
+  if (isFacturaScriptsPluginPage(url)) {
     return "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8";
   }
 
@@ -981,18 +1252,36 @@ function defaultGenericContentType(url) {
     return "application/atom+xml; charset=utf-8";
   }
 
-  if (isNextcloudPluginPage(url)) {
+  if (isFacturaScriptsPluginPage(url)) {
     return "text/html; charset=utf-8";
   }
 
   return "application/octet-stream";
 }
 
-function isNextcloudPluginPage(url) {
+function isFacturaScriptsPluginPage(url) {
   return (
-    url.hostname.toLowerCase() === "nextcloud.com" &&
+    url.hostname.toLowerCase() === "facturascripts.com" &&
     /^\/plugins\/[^/]+\/?$/u.test(url.pathname)
   );
+}
+
+// Dropbox shared file links: /s/{hash}/{filename} (legacy) and
+// /scl/fi/{hash}/{filename} (newer secure format with rlkey+st params).
+// Both formats redirect to dl.dropboxusercontent.com for the actual download.
+function isDropboxShareUrl(url) {
+  const hostname = url.hostname.toLowerCase();
+  if (hostname !== "www.dropbox.com" && hostname !== "dropbox.com") {
+    return false;
+  }
+  return /^\/(?:s\/[A-Za-z0-9_-]+|scl\/fi\/[A-Za-z0-9_-]+)\//u.test(
+    url.pathname,
+  );
+}
+
+// Dropbox CDN — the redirect target after a successful share-link download.
+function isDropboxCdnUrl(url) {
+  return url.hostname.toLowerCase().endsWith(".dropboxusercontent.com");
 }
 
 function isOmekaOrgResourceUrl(url) {
@@ -1311,8 +1600,8 @@ function landingPageHtml(origin) {
         <span class="method">GET</span>
         <span class="endpoint-name">Release</span>
       </div>
-      <div class="endpoint-desc">Download the source archive for a tagged release.</div>
-      <div class="url-box">${base}/?repo=<span class="param">{owner/repo}</span>&amp;release=<span class="param">{tag}</span></div>
+      <div class="endpoint-desc">Download the source archive for a tagged release, or <code>latest</code> to always resolve the repo's current latest release.</div>
+      <div class="url-box">${base}/?repo=<span class="param">{owner/repo}</span>&amp;release=<span class="param">{tag|latest}</span></div>
     </div>
 
     <div class="endpoint">
@@ -1320,8 +1609,17 @@ function landingPageHtml(origin) {
         <span class="method">GET</span>
         <span class="endpoint-name">Release Asset</span>
       </div>
-      <div class="endpoint-desc">Download a specific asset file attached to a release.</div>
-      <div class="url-box">${base}/?repo=<span class="param">{owner/repo}</span>&amp;release=<span class="param">{tag}</span>&amp;asset=<span class="param">{filename}</span></div>
+      <div class="endpoint-desc">Download a specific asset file attached to a release (also accepts <code>release=latest</code>).</div>
+      <div class="url-box">${base}/?repo=<span class="param">{owner/repo}</span>&amp;release=<span class="param">{tag|latest}</span>&amp;asset=<span class="param">{filename}</span></div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method">GET</span>
+        <span class="endpoint-name">Release Asset (pattern)</span>
+      </div>
+      <div class="endpoint-desc">Download a release asset matched by a glob instead of an exact filename — handy when the filename embeds a version, e.g. <code>epubviewer-*.tar.gz</code>. Combine with <code>release=latest</code> for a URL that never needs updating.</div>
+      <div class="url-box">${base}/?repo=<span class="param">{owner/repo}</span>&amp;release=<span class="param">{tag|latest}</span>&amp;asset-pattern=<span class="param">{glob}</span></div>
     </div>
 
   </div>
@@ -1357,8 +1655,9 @@ function landingPageHtml(origin) {
         <span class="method">GET</span>
         <span class="endpoint-name">URL Proxy</span>
       </div>
-      <div class="endpoint-desc">Proxy supported ZIP, GitHub resource, Google Drive, or omeka.org / dev.omeka.org URLs with CORS headers.</div>
+      <div class="endpoint-desc">Proxy supported ZIP, GitHub resource, Google Drive, Nextcloud / ownCloud share, or omeka.org / dev.omeka.org URLs with CORS headers.</div>
       <div class="endpoint-desc">Drive accepts direct <code>/uc?id=...</code> links and shared <code>/file/d/{id}/view</code> links.</div>
+      <div class="endpoint-desc">Nextcloud / ownCloud accepts public share links <code>/s/{token}</code> and <code>/s/{token}/download</code> on any host.</div>
       <div class="url-box">${base}/?url=<span class="param">{full_url}</span></div>
     </div>
 

@@ -195,6 +195,7 @@ export function buildDefaultBlueprint(config) {
       description: "Default Nextcloud Playground blueprint.",
     },
     debug: { enabled: false },
+    browserCompatibility: { sandboxedIframes: "strict" },
     landingPage: config.landingPath || "/index.php/login",
     siteOptions: {
       title: config.siteTitle || "Nextcloud Playground",
@@ -228,6 +229,12 @@ export function normalizeBlueprint(input, config) {
       description: blueprint.meta?.description || fallback.meta.description,
     },
     debug: { enabled: blueprint.debug?.enabled === true },
+    browserCompatibility: {
+      sandboxedIframes:
+        blueprint.browserCompatibility?.sandboxedIframes === "service-worker"
+          ? "service-worker"
+          : "strict",
+    },
     landingPage: normalizePath(
       blueprint.landingPage || blueprint.landingPath || fallback.landingPage,
       fallback.landingPage,
