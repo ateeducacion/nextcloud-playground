@@ -108,7 +108,17 @@ done
 
 # Drop source maps and VCS/dev metadata.
 find "$NC_STAGE" -type f -name "*.map" -delete 2>/dev/null || true
+find "$NC_STAGE" -type f -path "*/l10n/*.po" -delete 2>/dev/null || true
+find "$NC_STAGE" -type f \( \
+  -name ".editorconfig" -o \
+  -name "psalm.xml" -o -name "psalm.xml.dist" -o \
+  -name "phpstan.neon" -o -name "phpstan.neon.dist" -o \
+  -name ".phpcs.xml" -o -name ".phpcs.xml.dist" -o \
+  -name "phpcs.xml" -o -name "phpcs.xml.dist" \
+\) -delete 2>/dev/null || true
+find "$NC_STAGE" -type d -path "*/.github/workflows" -prune -exec rm -rf {} + 2>/dev/null || true
 rm -rf "$NC_STAGE/.git" "$NC_STAGE/.github" "$NC_STAGE/.tx"
+rm -rf "$NC_STAGE/updater"
 
 # The .map files above are gone, so their REUSE `.map.license` sidecars — shipped
 # as symlinks to the sibling `.js.license` — now dangle. Drop them so the staged

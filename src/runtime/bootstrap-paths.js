@@ -15,7 +15,7 @@ export const PLAYGROUND_DB_PATH = "/www/nextcloud/data/owncloud.db";
 
 // Small JSON marker recording what was installed, so a warm reload can skip
 // reinstalling when the bundle version matches.
-export const PLAYGROUND_CONFIG_PATH = "/internal/shared/playground-state.json";
+export const PLAYGROUND_CONFIG_PATH = "/persist/playground-state.json";
 
 // posix polyfill + $_SERVER defaults, loaded via php.ini auto_prepend_file.
 export const PLAYGROUND_PREPEND_PATH = "/internal/shared/auto_prepend_file.php";
