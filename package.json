@@ -23,7 +23,7 @@
     "zstddec": "^0.2.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.3",
+    "@biomejs/biome": "^2.5.4",
     "@php-wasm/node": "^3.1.44",
     "@playwright/test": "^1.61.1",
     "esbuild": "^0.28.1"
