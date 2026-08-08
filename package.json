@@ -25,7 +25,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.6",
     "@php-wasm/node": "^3.1.47",
-    "@playwright/test": "^1.62.0",
+    "@playwright/test": "^1.62.1",
     "esbuild": "^0.28.1"
   }
 }
