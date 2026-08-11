@@ -416,10 +416,21 @@ function bindShellChannel() {
         setUiLocked(true);
         appendLog(`${message.title}: ${message.detail}`);
         break;
-      case "ready":
+      case "ready": {
+        // The runtime host emits "ready" from the iframe's load handler, before
+        // the "navigate" that follows it, so an in-site navigation must be
+        // recorded here — by the time "navigate" arrives currentPath has
+        // already moved on and the transition would look like a no-op. The
+        // first load after boot or a restore is the landing redirect, not a
+        // user navigation, so it is not recorded.
+        const wasBooted = remoteFrameBooted;
         remoteFrameBooted = true;
         setUiLocked(false);
-        currentPath = message.path || currentPath;
+        const nextPath = message.path || currentPath;
+        if (wasBooted) {
+          recordBackEntry(currentPath, nextPath);
+        }
+        currentPath = nextPath;
         els.address.value = currentPath;
         saveState({ lastReadyAt: new Date().toISOString() });
         // After bootstrap completes (autologin cookies set), re-navigate so the
@@ -428,6 +439,7 @@ function bindShellChannel() {
           postToRemote({ kind: "navigate-site", path: currentPath });
         }
         break;
+      }
       case "navigate": {
         const nextPath = message.path || "/";
         recordBackEntry(currentPath, nextPath);
