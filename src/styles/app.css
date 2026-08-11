@@ -231,6 +231,15 @@ button.danger:hover {
   width: auto;
 }
 
+/* Compact app-icon variant of the brand, shown instead of the wordmark on
+   narrow screens. */
+.toolbar-brand__icon {
+  display: none;
+  height: 26px;
+  width: 26px;
+  border-radius: 6px;
+}
+
 .address-form__input {
   display: flex;
   align-items: center;
@@ -250,6 +259,11 @@ button.danger:hover {
 
 .address-form__input input {
   flex: 1;
+  /* An input contributes its intrinsic ~20-character width to intrinsic
+     sizing, which would become a hard floor for the toolbar's centre column
+     and overflow the bar on narrow phones. `width: 0` drops that floor; the
+     input still fills the pill through flex-grow. */
+  width: 0;
   min-width: 0;
   padding: 0;
   border: 0;
@@ -835,22 +849,22 @@ button.danger:hover {
     gap: var(--space-sm);
   }
 
-  .address-form__input {
+  /* Minimal mobile toolbar: app icon, Home, a narrow URL bar and the
+     panel toggle. The URL bar keeps whatever width the others leave over. */
+  .toolbar-brand__logo,
+  .toolbar-brand__text {
     display: none;
   }
 
-  .toolbar-brand__text,
-  .toolbar-separator {
-    display: none;
+  .toolbar-brand__icon {
+    display: block;
   }
 
-  .browser-toolbar .icon-button--labeled {
-    width: 36px;
-    min-width: 36px;
-    padding: 0;
-  }
-
-  .browser-toolbar .icon-button__label {
+  .toolbar-separator,
+  .browser-toolbar .icon-button--labeled,
+  .browser-toolbar .toolbar-github,
+  #back-button,
+  #refresh-button {
     display: none;
   }
 
