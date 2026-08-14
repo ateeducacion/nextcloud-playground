@@ -71,10 +71,12 @@ and zips per version. Supported versions live in
 
 ## Blueprints
 
-JSON → `occ` commands. Shape: `meta`, `debug`, `landingPage`, `siteOptions`,
+JSON → `occ` commands (plus `login` / `createShare` / `writeFile`, which are
+not occ). Shape: `meta`, `debug`, `landingPage`, `siteOptions`,
 `admin`, `apps[]` (shorthand for `enableApp`), `steps[]`. Step types:
-`enableApp`, `disableApp`, `createUser`, `createGroup`, `addUserToGroup`,
-`setConfig`, `runOcc`. Engine: `src/shared/blueprint.js` +
+`installNextcloud`, `login`, `enableApp`, `disableApp`, `createUser`,
+`createGroup`, `addUserToGroup`, `setConfig`, `installApp`, `writeFile`,
+`createShare`, `unzip`, `runOcc`. Engine: `src/shared/blueprint.js` +
 `src/runtime/blueprint-steps.js`. Schema: `assets/blueprints/blueprint-schema.json`.
 
 ## Skills

@@ -224,7 +224,9 @@ export async function bootstrapNextcloud({
     }
   }
 
-  if (config.autologin) {
+  // A blueprint `login` step already planted a session cookie. Don't overwrite
+  // it with the admin autologin (the landing user is whoever logged in last).
+  if (config.autologin && !blueprintResult.loggedInUser) {
     await performAutologin(php, config, publish);
   }
 

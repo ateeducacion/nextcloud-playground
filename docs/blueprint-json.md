@@ -42,7 +42,8 @@ http://localhost:8085/?blueprint-url=https://example.com/demo.blueprint.json
 | `browserCompatibility.sandboxedIframes` | Sandboxed app iframe handling | `strict` (default) or the explicit `service-worker` workaround described below. |
 | `landingPage` | Entry route | Normalized to start with `/` (e.g. `/index.php/apps/dashboard/`). |
 | `siteOptions` | Instance options | `title`, `locale`, `timezone`. |
-| `login` | Effective admin credentials | `username`, `password`. |
+| `login` | Legacy admin credentials | `username`, `password`. Folded into `admin` during normalization. |
+| `admin` | Admin account for install / autologin | `username`, `password`, `email`. Preferred over `login`. |
 | `steps` | Ordered provisioning steps | See the step reference below. |
 
 ```json
@@ -56,9 +57,9 @@ http://localhost:8085/?blueprint-url=https://example.com/demo.blueprint.json
   "debug": { "enabled": false },
   "landingPage": "/index.php/apps/dashboard/",
   "siteOptions": { "title": "Nextcloud Playground", "locale": "en", "timezone": "UTC" },
-  "login": { "username": "admin", "password": "admin" },
+  "admin": { "username": "admin", "password": "admin", "email": "admin@example.com" },
   "steps": [
-    { "step": "installNextcloud", "adminUser": "admin", "adminPass": "admin", "adminEmail": "admin@example.com" },
+    { "step": "installNextcloud" },
     { "step": "setConfig", "key": "default_phone_region", "value": "ES" },
     { "step": "createGroup", "gid": "teachers" },
     { "step": "createUser", "uid": "alice", "password": "alice-pass", "displayName": "Alice" },
@@ -96,25 +97,32 @@ mode for trusted app code.
 Steps run sequentially in array order. Each maps to an `occ` command or a web
 request.
 
+Field aliases accepted on every step (so both the documented names and the
+runtime names work): `uid`/`username`/`owner`, `gid`/`group`, `appId`/`app`,
+`contents`/`content`.
+
 ### `installNextcloud`
 
-Installs Nextcloud against SQLite. In practice this is an idempotent marker: the
-real install runs once during boot and is skipped if the persisted DB already
-matches the current bundle.
+Idempotent marker. The real install (`occ maintenance:install` against SQLite)
+runs once in bootstrap **before** steps, using top-level `admin`. Declaring this
+step is optional; it is a no-op when the instance is already installed (the
+usual case) so documented examples do not warn.
 
 ```json
-{ "step": "installNextcloud", "adminUser": "admin", "adminPass": "admin", "adminEmail": "admin@example.com" }
+{ "step": "installNextcloud" }
 ```
-
-Maps to:
-`occ maintenance:install --database sqlite --database-name nextcloud --admin-user admin --admin-pass admin --admin-email admin@example.com --data-dir <data>`,
-followed by the WASM-safe config flags.
 
 ### `login`
 
-Authenticates a user via a web request to `/index.php/login`, establishing a
-session cookie (captured by the runtime cookie jar). This is **not** an occ
-command.
+Establishes a logged-in session for `username`/`password` (or `uid`) by running
+the same server-side session helper as playground autologin (`UserSession::login`
++ session token). The request goes through `php.request()` so the cookie jar
+captures `Set-Cookie`. A form POST to `/index.php/login` is not used — the
+login CSRF token is awkward to round-trip under wasm.
+
+A successful `login` step **replaces** the default admin autologin, so a
+blueprint can land as a non-admin user. Without this step, `config.autologin`
+still signs in the admin.
 
 ```json
 { "step": "login", "username": "admin", "password": "admin" }
@@ -128,7 +136,7 @@ command.
 
 Maps to `OC_PASS=<password> occ user:add --password-from-env --display-name "<displayName>" <uid>`.
 The password is passed via the `OC_PASS` env var (no interactive prompt is
-possible).
+possible). `username` is accepted as an alias for `uid`.
 
 ### `createGroup`
 
@@ -136,7 +144,7 @@ possible).
 { "step": "createGroup", "gid": "teachers" }
 ```
 
-Maps to `occ group:add <gid>`.
+Maps to `occ group:add <gid>`. `group` is accepted as an alias for `gid`.
 
 ### `addUserToGroup`
 
@@ -152,7 +160,9 @@ Maps to `occ group:adduser <gid> <uid>`. The user and group must already exist.
 { "step": "enableApp", "appId": "activity" }
 ```
 
-Maps to `occ app:enable <appId>`. The app must be present in the trimmed bundle.
+Maps to `occ app:enable --force <appId>`. The app must be present in the
+trimmed bundle (or installed first with `installApp`). `app` is accepted as an
+alias for `appId`.
 
 ### `disableApp`
 
@@ -177,27 +187,55 @@ Specify `type` for non-string values.
 
 ### `writeFile`
 
-Writes a file into a user's files and indexes it.
+Writes a file into the instance. Path resolution:
+
+- `/<uid>/files/...` (documented shortcut) → that user's data directory,
+  then `occ files:scan <uid>` so Files / shares can see it.
+- relative paths (`config/mimetypemapping.json`, `data/admin/files/sample.md`)
+  → the Nextcloud root (`/www/nextcloud/...`). A write under
+  `data/<uid>/files/` is also scanned.
+- already-absolute VFS paths (`/www/...`, `/persist/...`) are used as-is.
+
+Contents come from `content` / `contents` (UTF-8, or base64 when
+`"encoding": "base64"`) or are fetched from `url` (the host must allow CORS).
+Parent directories are created as needed.
 
 ```json
 { "step": "writeFile", "path": "/admin/files/welcome.md", "contents": "# Welcome" }
+{ "step": "writeFile", "path": "config/mimetypemapping.json", "content": "{\"elpx\":[\"application/vnd.exelearning.elpx\",\"application/zip\"]}" }
+{ "step": "writeFile", "path": "data/admin/files/sample.elpx", "url": "https://raw.githubusercontent.com/owner/repo/main/fixtures/sample.elpx" }
 ```
 
-Writes the bytes into the user's data directory, then runs `occ files:scan <uid>`
-so Nextcloud registers the file. `contents` can also be supplied from a resource
-(URL / base64) rather than inline literal text.
+Useful for registering a custom MIME type (write `config/mimetypemapping.json` +
+`config/mimetypealiases.json`, then `runOcc` `maintenance:mimetype:update-js` and
+`maintenance:mimetype:update-db`).
 
 ### `createShare`
 
-Creates a share for an existing path.
+Creates a share for an existing path in a user's files. Stock Nextcloud has
+**no** `occ` command for this (so `runOcc` is not a workaround). The step
+bootstraps Nextcloud and calls [`OCP\Share\IManager`](https://docs.nextcloud.com/server/latest/developer_manual/client_apis/OCS/ocs-share-api.html)
+— the same engine behind `POST /ocs/v2.php/apps/files_sharing/api/v1/shares`.
+
+`path` is relative to the owner's files (`/welcome.md`). A writeFile-style
+`/<uid>/files/...` or `data/<uid>/files/...` path is also accepted and implies
+the owner. Default owner is `admin` (or an explicit `owner` / `uid` /
+`username`). The file must already exist and be scanned (see `writeFile`).
 
 ```json
 { "step": "createShare", "path": "/welcome.md", "shareType": "public" }
 { "step": "createShare", "path": "/Reports", "shareType": "group", "shareWith": "teachers", "permissions": "read" }
+{ "step": "createShare", "path": "/welcome.md", "shareType": "user", "shareWith": "alice", "permissions": ["read", "update"] }
 ```
 
-`shareType` is typically `public` (link), `user`, or `group`. For `user`/`group`
-shares set `shareWith`; `permissions` defaults to read.
+| Field | Use |
+|---|---|
+| `shareType` | `public` / `link` (3), `user` (0), `group` (1). Names or OCS integers. |
+| `shareWith` | Required for `user` / `group`. |
+| `permissions` | `read` (1), `update` (2), `create` (4), `delete` (8), `share` (16), `all` (31), a bitmask, or an array of names. Default: **read** for public links, **all** otherwise (same as the OCS API). |
+| `password` | Optional public-link password. |
+| `expireDate` | Optional `YYYY-MM-DD` public-link expiry. |
+| `note`, `label` | Optional share note / label. |
 
 ### `installApp`
 
@@ -234,23 +272,19 @@ e.g. the shared `github-proxy` worker:
 https://github-proxy.exelearning.dev/?repo=<owner/repo>&release=<tag>&asset=<file>.zip
 ```
 
-### `writeFile`
+### `unzip`
 
-Writes a file into the instance. `path` is resolved against the Nextcloud root
-(`/www/nextcloud`) unless it starts with `/`. The contents come from `content`
-(UTF-8 text, or base64 when `"encoding": "base64"`) or are fetched from `url`
-(handy for binary payloads too large to inline — the host must allow CORS).
-Parent directories are created as needed.
+Fetches a ZIP or gzip-tar and extracts it into `destination` (relative to the
+Nextcloud root, or absolute), stripping a single top-level wrapper folder.
+Use this to overlay a standalone bundle (for example a static editor) into an
+already-installed app.
 
 ```json
-{ "step": "writeFile", "path": "config/mimetypemapping.json", "content": "{\"elpx\":[\"application/vnd.exelearning.elpx\",\"application/zip\"]}" }
-{ "step": "writeFile", "path": "data/admin/files/sample.elpx", "url": "https://raw.githubusercontent.com/owner/repo/main/fixtures/sample.elpx" }
+{ "step": "unzip", "url": "https://example.com/editor.zip", "destination": "apps/exelearning/js/editor" }
 ```
 
-Useful for registering a custom MIME type (write `config/mimetypemapping.json` +
-`config/mimetypealiases.json`, then `runOcc` `maintenance:mimetype:update-js` and
-`maintenance:mimetype:update-db`). To make a file show up in a user's Files view,
-write it under that user's data dir and follow with `runOcc` `files:scan <user>`.
+The ZIP host must send `Access-Control-Allow-Origin` (same CORS rule as
+`installApp`).
 
 ### `runOcc`
 

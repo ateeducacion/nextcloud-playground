@@ -55,6 +55,7 @@ describe("normalizeBlueprint", () => {
 | File | Subject |
 |---|---|
 | `tests/blueprint.test.mjs` | `normalizeInstall`, `normalizeBlueprint`, `buildDefaultBlueprint`, `buildEffectivePlaygroundConfig`, seed `_unique` dedupe, `normalizeSettings` coercion/dropping. |
+| `tests/blueprint-steps.test.mjs` | `login` / `createShare` / `installNextcloud` handlers, documented field aliases (`uid`/`gid`/`appId`), share-type/permission mapping, writeFile user-files scan. |
 | `tests/bootstrap-prepend.test.mjs` | `buildPhpPrepend()` from `src/runtime/php-prepend.js` — asserts it starts with `<?php`, seeds the offline cache, writes on every request. |
 | `tests/shared-paths.test.mjs` | `src/shared/paths.js` base-path / subdirectory math. |
 | `tests/shared-storage.test.mjs` | `src/shared/storage.js` persistence helpers. |

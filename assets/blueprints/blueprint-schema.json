@@ -67,6 +67,8 @@
           "step": {
             "type": "string",
             "enum": [
+              "installNextcloud",
+              "login",
               "enableApp",
               "disableApp",
               "createUser",
@@ -75,6 +77,7 @@
               "setConfig",
               "installApp",
               "writeFile",
+              "createShare",
               "unzip",
               "runOcc"
             ]
@@ -95,11 +98,15 @@
           },
           "path": {
             "type": "string",
-            "description": "writeFile: target path, relative to the Nextcloud root or absolute."
+            "description": "writeFile target, or createShare path relative to the owner's files (e.g. /welcome.md). `/<uid>/files/...` writes into that user's data directory."
           },
           "content": {
             "type": "string",
             "description": "writeFile: file contents (text, or base64 when encoding is set)."
+          },
+          "contents": {
+            "type": "string",
+            "description": "Alias for writeFile `content`."
           },
           "encoding": {
             "type": "string",
@@ -107,11 +114,45 @@
             "description": "writeFile: how `content` is encoded (default utf8)."
           },
           "username": { "type": "string" },
+          "uid": {
+            "type": "string",
+            "description": "Alias for username / createShare owner."
+          },
           "password": { "type": "string" },
           "displayName": { "type": "string" },
           "email": { "type": "string" },
           "groups": { "type": "array", "items": { "type": "string" } },
           "group": { "type": "string" },
+          "gid": {
+            "type": "string",
+            "description": "Alias for group."
+          },
+          "owner": {
+            "type": "string",
+            "description": "createShare: user who owns the path (default admin)."
+          },
+          "shareType": {
+            "description": "createShare: public/link (3), user (0), or group (1). Names or OCS integers.",
+            "oneOf": [{ "type": "string" }, { "type": "integer" }]
+          },
+          "shareWith": {
+            "type": "string",
+            "description": "createShare: recipient uid or gid for user/group shares."
+          },
+          "permissions": {
+            "description": "createShare: read/update/create/delete/share/all, a bitmask, or an array of names. Default read for public, all otherwise.",
+            "oneOf": [
+              { "type": "string" },
+              { "type": "integer" },
+              { "type": "array", "items": { "type": "string" } }
+            ]
+          },
+          "expireDate": {
+            "type": "string",
+            "description": "createShare: public-link expiry (YYYY-MM-DD)."
+          },
+          "note": { "type": "string" },
+          "label": { "type": "string" },
           "key": { "type": "string" },
           "value": {},
           "args": { "type": "array", "items": { "type": "string" } }

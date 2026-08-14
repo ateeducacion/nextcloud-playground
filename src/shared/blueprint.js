@@ -129,6 +129,8 @@ function normalizePath(path, fallback = "/") {
 }
 
 const KNOWN_STEPS = new Set([
+  "installNextcloud",
+  "login",
   "enableApp",
   "disableApp",
   "createUser",
@@ -137,6 +139,7 @@ const KNOWN_STEPS = new Set([
   "setConfig",
   "installApp",
   "writeFile",
+  "createShare",
   "unzip",
   "runOcc",
 ]);

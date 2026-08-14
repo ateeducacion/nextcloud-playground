@@ -123,6 +123,9 @@ describe("knownStepTypes", () => {
       "setConfig",
       "installApp",
       "writeFile",
+      "createShare",
+      "login",
+      "installNextcloud",
       "runOcc",
     ]) {
       assert.ok(types.includes(t), `expected step type ${t}`);

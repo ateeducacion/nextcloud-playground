@@ -15,9 +15,9 @@ const escapePhp = (value) =>
  * Mirrors the autologin approach of the Moodle / Omeka S / FacturaScripts
  * playgrounds.
  */
-export function buildAutologinScript(config) {
-  const user = escapePhp(config.admin?.username || "admin");
-  const pass = escapePhp(config.admin?.password || "admin");
+export function buildLoginScript({ username, password } = {}) {
+  const user = escapePhp(username || "admin");
+  const pass = escapePhp(password || "admin");
   return `<?php
 require '${NEXTCLOUD_ROOT}/lib/base.php';
 header('Content-Type: application/json');
@@ -39,4 +39,11 @@ try {
     echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
 }
 `;
+}
+
+export function buildAutologinScript(config) {
+  return buildLoginScript({
+    username: config.admin?.username || "admin",
+    password: config.admin?.password || "admin",
+  });
 }
