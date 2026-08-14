@@ -86,8 +86,9 @@ Two files drive the defaults:
   (landing page, login credentials, apps, config, users/groups, files, shares).
 
 To change the admin password, edit `admin.password` in `playground.config.json`
-and/or `login.password` in the default blueprint. See
-[blueprint-json.md](blueprint-json.md) for the full blueprint reference.
+and/or `admin.password` (legacy alias: `login.password`) in the default
+blueprint. See [blueprint-json.md](blueprint-json.md) for the full blueprint
+reference.
 
 ## Loading a custom blueprint
 

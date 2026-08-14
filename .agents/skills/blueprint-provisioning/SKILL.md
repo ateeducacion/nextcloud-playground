@@ -77,16 +77,16 @@ script that sets `$_SERVER['argv']`, unsets `REQUEST_URI`, requires
 
 | Step | occ / mechanism | Notes |
 |---|---|---|
-| `installNextcloud` | `occ maintenance:install --database sqlite --database-name nextcloud --admin-user <u> --admin-pass <p> --admin-email <e> --data-dir <dir>` | Idempotent marker in practice — the real install runs once in bootstrap; re-runs are skipped if `config.php` has `installed => true`. Then set WASM-safe config flags. |
-| `login` | Web request to `/index.php/login` (or token login) | Establishes a session cookie captured by the wrapper's cookie jar. Not occ. |
+| `installNextcloud` | (no-op after bootstrap) | Idempotent marker — the real install runs once in bootstrap; the step is recognized so documented blueprints do not warn. |
+| `login` | `UserSession::login` via `php.request()` | Same helper as autologin. Plants a session cookie in the jar. A successful login step skips the later admin autologin. |
 | `createUser` | `OC_PASS=<pass> occ user:add --password-from-env --display-name "<name>" <uid>` | Password via env (no interactive prompt). |
 | `createGroup` | `occ group:add <gid>` | |
 | `addUserToGroup` | `occ group:adduser <gid> <uid>` | Group and user must exist first. |
 | `enableApp` | `occ app:enable <appId>` | App must be present in the trimmed bundle. |
 | `disableApp` | `occ app:disable <appId>` | E.g. disable `firstrunwizard`. |
 | `setConfig` | `occ config:system:set <key> [<subkey>...] --value <v> [--type bool\|integer\|json]` | For `config.php` keys; coerce types explicitly. |
-| `writeFile` | MEMFS write into the user's files dir + `occ files:scan <uid>` | Write the bytes, then scan so Nextcloud indexes the new file. |
-| `createShare` | `occ` (sharing API) or `OCS` web call | Public link or user/group share for an existing path. |
+| `writeFile` | MEMFS write; `occ files:scan <uid>` for user files | `/<uid>/files/...` maps into the data dir. Other paths are relative to the Nextcloud root. |
+| `createShare` | `OCP\Share\IManager` (no stock occ command) | Public link / user / group share for an existing, scanned path. Same engine as `POST /ocs/v2.php/apps/files_sharing/api/v1/shares`. |
 | `runOcc` | Arbitrary `occ <args...>` | Escape hatch for commands without a dedicated step. |
 
 ### occ generation rules

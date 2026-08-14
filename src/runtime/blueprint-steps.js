@@ -5,12 +5,24 @@ import {
   fetchWithProgress,
   writeEntriesToPhp,
 } from "../../lib/nextcloud-loader.js";
+import { buildLoginScript } from "./autologin-script.js";
+import {
+  parseJsonFromPhpOutput,
+  resolveSharePath,
+  resolveSharePermissions,
+  resolveShareType,
+  resolveWriteFileTarget,
+  stepAppId,
+  stepGroupId,
+  stepUsername,
+} from "./blueprint-step-utils.js";
 import { NEXTCLOUD_ROOT } from "./bootstrap-paths.js";
 import {
   buildOccScript,
   buildUnzipScript,
   buildZipExtractScript,
 } from "./install-script.js";
+import { buildCreateShareScript } from "./share-script.js";
 
 /**
  * Idempotent `mkdir -p` against the PHP VFS (mirrors bootstrap's ensureDir).
@@ -66,18 +78,23 @@ function reRootEntriesToApp(entries) {
  * one or more occ commands run in CLI mode through php.run().
  *
  * Supported steps (v1):
- *   - { step: "enableApp",  app }              → occ app:enable <app>
- *   - { step: "disableApp", app }              → occ app:disable <app>
- *   - { step: "createUser", username, password, displayName?, email?, groups? }
- *   - { step: "createGroup", group }           → occ group:add <group>
- *   - { step: "addUserToGroup", username, group } → occ group:adduser <group> <username>
+ *   - { step: "installNextcloud" }             → no-op (install already ran)
+ *   - { step: "login", username, password }    → php.request() session cookie
+ *   - { step: "enableApp",  app|appId }        → occ app:enable <app>
+ *   - { step: "disableApp", app|appId }        → occ app:disable <app>
+ *   - { step: "createUser", username|uid, password, displayName?, email?, groups? }
+ *   - { step: "createGroup", group|gid }       → occ group:add <group>
+ *   - { step: "addUserToGroup", username|uid, group|gid }
  *   - { step: "setConfig", key, value, app? }  → occ config:system:set | config:app:set
  *   - { step: "installApp", appId, url, enable? } → fetch a ZIP or gzip-tar
  *       (Nextcloud's own app/appstore packaging is always the latter), extract
  *       into apps/<appId>, then occ app:enable --force <appId>
  *   - { step: "writeFile", path, content|url, encoding? } → write a file into
  *       the instance (content inline, or fetched from url; path relative to the
- *       Nextcloud root, or absolute)
+ *       Nextcloud root, or `/<uid>/files/...` into the user's data dir). User
+ *       files are followed by occ files:scan.
+ *   - { step: "createShare", path, shareType, shareWith?, permissions? }
+ *       → OCP\Share\IManager (no stock occ sharing command)
  *   - { step: "unzip", url, destination }      → fetch a ZIP or gzip-tar and
  *       extract it into destination (relative to the Nextcloud root, or
  *       absolute), stripping a single top-level wrapper folder. Overlays a
@@ -99,6 +116,9 @@ export async function executeBlueprintSteps({ php, blueprint, publish }) {
   // Set when a step that the instance can't work without (currently installApp)
   // fails. The caller uses this to avoid caching a partial install as "done".
   let criticalFailure = false;
+  let loggedInUser = null;
+  const defaultOwner =
+    blueprint?.admin?.username || blueprint?.login?.username || "admin";
 
   async function occ(argv, env = {}) {
     const res = await php.run(buildOccScript(argv, env));
@@ -112,31 +132,74 @@ export async function executeBlueprintSteps({ php, blueprint, publish }) {
     const ratio = 0.78 + (i / steps.length) * 0.07;
     try {
       switch (name) {
-        case "enableApp":
-          publish(`Enabling app: ${step.app}`, ratio);
-          await occ(["occ", "app:enable", "--force", String(step.app)]);
+        case "installNextcloud":
+          // The real install runs in bootstrap before steps. Keep this as an
+          // idempotent marker so documented blueprints don't warn/no-op.
+          publish("Nextcloud is already installed.", ratio);
           break;
-        case "disableApp":
-          publish(`Disabling app: ${step.app}`, ratio);
-          await occ(["occ", "app:disable", String(step.app)]);
+        case "login": {
+          const username = stepUsername(step, defaultOwner);
+          const password = String(step.password || "password");
+          if (!username) {
+            publish("[warning] login requires username.", ratio);
+            continue;
+          }
+          if (typeof php.request !== "function") {
+            publish(
+              "[warning] login requires php.request() (cookie jar).",
+              ratio,
+            );
+            continue;
+          }
+          publish(`Signing in: ${username}`, ratio);
+          const scriptPath = `${NEXTCLOUD_ROOT}/_playground_autologin.php`;
+          await php.writeFile(
+            scriptPath,
+            new TextEncoder().encode(buildLoginScript({ username, password })),
+          );
+          const response = await php.request(
+            new Request("http://localhost/_playground_autologin.php"),
+          );
+          const text = await response.text();
+          const result = parseJsonFromPhpOutput(text);
+          if (!result?.ok) {
+            throw new Error(result?.error || "login failed");
+          }
+          loggedInUser = result.uid || username;
           break;
-        case "createGroup":
-          publish(`Creating group: ${step.group}`, ratio);
-          await occ(["occ", "group:add", String(step.group)]);
+        }
+        case "enableApp": {
+          const app = stepAppId(step);
+          publish(`Enabling app: ${app}`, ratio);
+          await occ(["occ", "app:enable", "--force", app]);
           break;
+        }
+        case "disableApp": {
+          const app = stepAppId(step);
+          publish(`Disabling app: ${app}`, ratio);
+          await occ(["occ", "app:disable", app]);
+          break;
+        }
+        case "createGroup": {
+          const group = stepGroupId(step);
+          publish(`Creating group: ${group}`, ratio);
+          await occ(["occ", "group:add", group]);
+          break;
+        }
         case "createUser": {
-          publish(`Creating user: ${step.username}`, ratio);
+          const username = stepUsername(step);
+          publish(`Creating user: ${username}`, ratio);
           const argv = ["occ", "user:add", "--password-from-env"];
           if (step.displayName)
             argv.push("--display-name", String(step.displayName));
           for (const g of step.groups || []) argv.push("--group", String(g));
-          argv.push(String(step.username));
+          argv.push(username);
           await occ(argv, { OC_PASS: String(step.password || "password") });
           if (step.email) {
             await occ([
               "occ",
               "user:setting",
-              String(step.username),
+              username,
               "settings",
               "email",
               String(step.email),
@@ -144,15 +207,13 @@ export async function executeBlueprintSteps({ php, blueprint, publish }) {
           }
           break;
         }
-        case "addUserToGroup":
-          publish(`Adding ${step.username} to ${step.group}`, ratio);
-          await occ([
-            "occ",
-            "group:adduser",
-            String(step.group),
-            String(step.username),
-          ]);
+        case "addUserToGroup": {
+          const username = stepUsername(step);
+          const group = stepGroupId(step);
+          publish(`Adding ${username} to ${group}`, ratio);
+          await occ(["occ", "group:adduser", group, username]);
           break;
+        }
         case "setConfig":
           publish(`Setting config: ${step.key}`, ratio);
           if (step.app) {
@@ -262,9 +323,7 @@ export async function executeBlueprintSteps({ php, blueprint, publish }) {
             publish("[warning] writeFile requires a path.", ratio);
             continue;
           }
-          const target = path.startsWith("/")
-            ? path
-            : `${NEXTCLOUD_ROOT}/${path}`;
+          const { target, scanUid } = resolveWriteFileTarget(path);
           const url = String(step.url || "").trim();
           let bytes;
           if (url) {
@@ -293,6 +352,55 @@ export async function executeBlueprintSteps({ php, blueprint, publish }) {
             lastSlash > 0 ? target.slice(0, lastSlash) : "/",
           );
           await php.writeFile(target, bytes);
+          if (scanUid) {
+            publish(`Indexing files for ${scanUid}.`, ratio);
+            await occ(["occ", "files:scan", scanUid]);
+          }
+          break;
+        }
+        case "createShare": {
+          const rawPath = String(step.path || "").trim();
+          if (!rawPath) {
+            publish("[warning] createShare requires a path.", ratio);
+            continue;
+          }
+          const resolved = resolveSharePath(
+            rawPath,
+            stepUsername(step, defaultOwner),
+          );
+          const shareType = resolveShareType(step.shareType);
+          if ((shareType === 0 || shareType === 1) && !step.shareWith) {
+            publish(
+              "[warning] createShare user/group shares require shareWith.",
+              ratio,
+            );
+            continue;
+          }
+          const permissions = resolveSharePermissions(
+            step.permissions,
+            shareType,
+          );
+          publish(`Creating share: ${rawPath}`, ratio);
+          const res = await php.run(
+            buildCreateShareScript({
+              owner: resolved.owner,
+              userPath: resolved.userPath,
+              shareType,
+              shareWith: step.shareWith || "",
+              permissions,
+              password: step.password || "",
+              expireDate: step.expireDate || "",
+              note: step.note || "",
+              label: step.label || "",
+            }),
+          );
+          const out = decoder.decode(res.bytes || new Uint8Array());
+          const result = parseJsonFromPhpOutput(out);
+          if (!result?.ok) {
+            throw new Error(
+              result?.error || out.slice(0, 300) || "createShare failed",
+            );
+          }
           break;
         }
         case "unzip": {
@@ -378,5 +486,5 @@ export async function executeBlueprintSteps({ php, blueprint, publish }) {
     }
   }
 
-  return { executed, criticalFailure };
+  return { executed, criticalFailure, loggedInUser };
 }
