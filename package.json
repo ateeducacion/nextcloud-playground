@@ -26,6 +26,6 @@
     "@biomejs/biome": "^2.5.7",
     "@php-wasm/node": "^3.1.48",
     "@playwright/test": "^1.62.1",
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.2"
   }
 }
