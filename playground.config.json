@@ -2,6 +2,9 @@
   "bundleVersion": "0.1.7",
   "defaultBlueprintUrl": "./assets/blueprints/default.blueprint.json",
   "phpCorsProxyUrl": null,
+  "sentry": {
+    "dsn": "https://8964ba6ac5fe88d471a32ad1155dc7d0@o4510456164712448.ingest.de.sentry.io/4511915925766224"
+  },
   "siteTitle": "Nextcloud Playground",
   "landingPath": "/index.php/apps/files/files",
   "locale": "en",
