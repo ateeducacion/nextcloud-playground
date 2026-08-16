@@ -15,3 +15,7 @@ assets/manifests/*
 !assets/manifests/.gitkeep
 .omc/
 outputs/
+
+# Generated build metadata (the deployment Build ID) — never committed.
+src/generated/
+assets/build-version.json

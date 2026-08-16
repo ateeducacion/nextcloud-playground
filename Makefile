@@ -2,7 +2,7 @@ PORT ?= 8085
 NC_MAJOR ?= 33
 NC_RELEASE ?= latest-33
 
-.PHONY: help up deps prepare bundle bundle-all bundle-30 bundle-31 bundle-32 bundle-33 \
+.PHONY: help up deps build-version prepare bundle bundle-all bundle-30 bundle-31 bundle-32 bundle-33 \
         serve test test-e2e lint format clean reset perf-compare
 
 help:
@@ -28,7 +28,12 @@ help:
 deps:
 	npm install
 
-prepare: deps
+# Build metadata (the deployment Build ID) is generated, never committed.
+# CI exports BUILD_VERSION so every invocation in one pipeline run reuses it.
+build-version:
+	npm run build:version
+
+prepare: deps build-version
 	npm run sync-browser-deps
 	npm run build-worker
 	npm run prepare-runtime
@@ -50,7 +55,9 @@ bundle-33:
 
 bundle-all: prepare bundle-30 bundle-31 bundle-32 bundle-33
 
-test:
+# src/generated/build-version.js is generated and git-ignored; several tests
+# (and the modules they import) expect it to exist.
+test: build-version
 	node --test tests/*.test.mjs
 
 test-e2e:
