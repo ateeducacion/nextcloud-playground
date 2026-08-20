@@ -20,6 +20,11 @@ import {
 } from "../shared/paths.js";
 import { createShellChannel } from "../shared/protocol.js";
 import {
+  createServiceWorkerUnsupportedError,
+  isServiceWorkerSupported,
+  isServiceWorkerUnsupportedError,
+} from "../shared/service-worker-support.js";
+import {
   clearScopeSession,
   getOrCreateScopeId,
   loadSessionState,
@@ -134,6 +139,21 @@ function showWasmNetworkWarning(pagePath) {
   document.body.prepend(banner);
 }
 
+// A blocking, non-dismissable banner for failures the user cannot navigate away
+// from. Unlike the WASM warning above there is no close button: the playground
+// is not going to work in this browser and hiding the reason is how a blank
+// page happens.
+function showBlockingError(message) {
+  document.getElementById("blocking-error")?.remove();
+
+  const banner = document.createElement("div");
+  banner.id = "blocking-error";
+  banner.className = "blocking-error-banner";
+  banner.setAttribute("role", "alert");
+  banner.textContent = message;
+  document.body.prepend(banner);
+}
+
 function setUiLocked(locked) {
   uiLocked = locked;
   els.address.disabled = locked;
@@ -168,6 +188,10 @@ async function ensureRuntimeServiceWorker() {
     return;
   }
 
+  if (!isServiceWorkerSupported()) {
+    throw createServiceWorkerUnsupportedError();
+  }
+
   const swUrl = new URL("../../sw.js", import.meta.url);
   // Cache-bust the SW by the per-build worker-bundle hash so a redeploy is
   // always picked up (the old static config.bundleVersion was manual).
@@ -181,9 +205,9 @@ async function ensureRuntimeServiceWorker() {
     updateViaCache: "none",
   });
   await registration.update();
-  await navigator.serviceWorker.ready;
+  await navigator.serviceWorker?.ready;
 
-  if (!navigator.serviceWorker.controller) {
+  if (!navigator.serviceWorker?.controller) {
     const alreadyReloaded =
       window.sessionStorage.getItem(CONTROL_RELOAD_KEY) === "1";
     if (!alreadyReloaded) {
@@ -196,12 +220,46 @@ async function ensureRuntimeServiceWorker() {
   window.sessionStorage.removeItem(CONTROL_RELOAD_KEY);
 }
 
+let serviceWorkerFailureReported = false;
+
+// Without a Service Worker there is no runtime at all, so the shell must say so
+// instead of leaving the user in front of an empty iframe. Report the two cases
+// separately: a browser that never offers Service Workers is an environment
+// limitation (warning), a rejected registration is a real failure (exception).
+function reportServiceWorkerFailure(error) {
+  const message = String(error?.message || error);
+  appendLog(message, true);
+  showBlockingError(message);
+  setUiLocked(false);
+
+  // The rejected promise is cached in serviceWorkerReady, so every later
+  // navigation lands here again; report it to Sentry only once per session.
+  if (serviceWorkerFailureReported) {
+    return;
+  }
+  serviceWorkerFailureReported = true;
+
+  if (isServiceWorkerUnsupportedError(error)) {
+    captureMessage(message, "warning", {
+      source: "service-worker-unsupported",
+    });
+  } else {
+    captureException(error, { source: "service-worker-registration" });
+  }
+}
+
 async function updateFrame() {
   if (!serviceWorkerReady) {
     serviceWorkerReady = ensureRuntimeServiceWorker();
   }
 
-  await serviceWorkerReady;
+  try {
+    await serviceWorkerReady;
+  } catch (error) {
+    reportServiceWorkerFailure(error);
+    return;
+  }
+
   const url = resolveRemoteUrl(scopeId, currentRuntimeId, currentPath);
   if (pendingCleanBoot) {
     url.searchParams.set("clean", "1");
@@ -459,15 +517,25 @@ function bindShellChannel() {
         appendLog(message.detail, true);
         showWasmNetworkWarning(message.path);
         break;
-      case "error":
+      case "error": {
         remoteFrameBooted = false;
         setUiLocked(false);
         appendLog(message.detail, true);
-        captureMessage(message.detail, "error", { source: "runtime" });
+        // The runtime host has no monitoring client of its own, so it classifies
+        // its own boot failures and this side reports them at the level it asked
+        // for — an unsupported browser must not group with runtime regressions.
+        const hint = message.monitoring;
+        captureMessage(message.detail, hint?.level || "error", {
+          source: hint?.source || "runtime",
+        });
+        if (hint?.source === "service-worker-unsupported") {
+          showBlockingError(message.summary || message.detail);
+        }
         if (!latestPhpInfoHtml) {
           capturePhpInfoViaWorker("bootstrap-error");
         }
         break;
+      }
       case "phpinfo":
         setPhpInfoContent(message.html || "");
         appendLog(message.detail || "Captured PHP runtime diagnostics.");

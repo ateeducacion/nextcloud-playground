@@ -3,6 +3,11 @@ import { loadActiveBlueprint } from "../shared/blueprint.js";
 import { getDefaultRuntime, loadPlaygroundConfig } from "../shared/config.js";
 import { buildScopedSitePath } from "../shared/paths.js";
 import { createShellChannel } from "../shared/protocol.js";
+import {
+  createServiceWorkerUnsupportedError,
+  isServiceWorkerSupported,
+  isServiceWorkerUnsupportedError,
+} from "../shared/service-worker-support.js";
 import { saveSessionState } from "../shared/storage.js";
 
 const overlayEl = document.querySelector(".remote-boot__card");
@@ -48,9 +53,27 @@ function emit(scopeId, message) {
   channel.close();
 }
 
+// This iframe has no monitoring client of its own — the shell owns it — so a
+// boot failure is classified here and reported by the shell at the right level
+// when it receives the "error" message. An unsupported browser is an
+// environment limitation (warning); anything else is a real failure.
+function monitoringHintFor(error) {
+  if (isServiceWorkerUnsupportedError(error)) {
+    return { level: "warning", source: "service-worker-unsupported" };
+  }
+  if (error?.monitoringSource) {
+    return { level: "error", source: error.monitoringSource };
+  }
+  return null;
+}
+
 async function registerRuntimeServiceWorker(scopeId, runtimeId, config) {
-  if (navigator.serviceWorker.controller) {
-    return navigator.serviceWorker.ready;
+  if (!isServiceWorkerSupported()) {
+    throw createServiceWorkerUnsupportedError();
+  }
+
+  if (navigator.serviceWorker?.controller) {
+    return navigator.serviceWorker?.ready;
   }
 
   const swUrl = new URL("../../sw.js", import.meta.url);
@@ -58,17 +81,31 @@ async function registerRuntimeServiceWorker(scopeId, runtimeId, config) {
   swUrl.searchParams.set("scope", scopeId);
   swUrl.searchParams.set("runtime", runtimeId);
 
-  const registration = await navigator.serviceWorker.register(swUrl, {
-    scope: "./",
-    type: "module",
-    updateViaCache: "none",
-  });
+  let registration;
+  try {
+    registration = await navigator.serviceWorker.register(swUrl, {
+      scope: "./",
+      type: "module",
+      updateViaCache: "none",
+    });
+  } catch (error) {
+    // A rejected registration blanks the page just like a missing API does, so
+    // tag it and let it propagate to the boot overlay instead of dying silently.
+    error.monitoringSource = "service-worker-registration";
+    throw error;
+  }
 
-  await navigator.serviceWorker.ready;
+  await navigator.serviceWorker?.ready;
   return registration;
 }
 
 async function waitForServiceWorkerControl() {
+  // Never wait on an event that can never fire: without the API the promise
+  // would hang forever and the boot overlay would sit at 12% with no error.
+  if (!isServiceWorkerSupported()) {
+    throw createServiceWorkerUnsupportedError();
+  }
+
   if (!navigator.serviceWorker.controller) {
     await new Promise((resolve) => {
       navigator.serviceWorker.addEventListener("controllerchange", resolve, {
@@ -237,7 +274,7 @@ async function bootstrapRemote() {
   await waitForServiceWorkerControl();
   setRemoteProgress("Service Worker ready and controlling this tab.", 0.12);
 
-  if (navigator.serviceWorker.controller) {
+  if (navigator.serviceWorker?.controller) {
     navigator.serviceWorker.controller.postMessage({
       kind: "configure-service-worker",
       scopeId,
@@ -247,7 +284,7 @@ async function bootstrapRemote() {
     });
   }
 
-  if (forceCleanBoot && navigator.serviceWorker.controller) {
+  if (forceCleanBoot && navigator.serviceWorker?.controller) {
     navigator.serviceWorker.controller.postMessage({
       kind: "clear-static-cache",
     });
@@ -310,7 +347,7 @@ async function bootstrapRemote() {
   });
 
   // Show progress while the iframe loads static assets after bootstrap.
-  navigator.serviceWorker.addEventListener("message", (event) => {
+  navigator.serviceWorker?.addEventListener("message", (event) => {
     if (event.data?.kind === "sw-debug" && bootstrapDone) {
       setRemoteProgress("Loading page assets\u2026", 0.97);
     }
@@ -336,9 +373,15 @@ bootstrapRemote().catch((error) => {
   const url = new URL(window.location.href);
   const scopeId = url.searchParams.get("scope");
   setOverlayVisible(true);
+  // Show the human-readable message on the boot card, not the stack: this is
+  // the only surface the user sees when the runtime never comes up.
   setRemoteProgress(String(error?.message || error));
   emit(scopeId, {
     kind: "error",
     detail: String(error?.stack || error?.message || error),
+    // `detail` carries the stack for the runtime log; `summary` is the one-line
+    // text the shell is allowed to put in front of the user.
+    summary: String(error?.message || error),
+    monitoring: monitoringHintFor(error),
   });
 });

@@ -91,7 +91,12 @@ function getMimeType(path) {
   return MIME_TYPES[ext] || "application/octet-stream";
 }
 
-function phpResponseToResponse(phpResponse) {
+// The Fetch spec forbids a body on these statuses; Nextcloud legitimately emits
+// 204 and 304 (WebDAV/OCS no-content replies, conditional GETs) and
+// constructing a Response with bytes for them throws and blanks the whole page.
+export const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
+
+export function phpResponseToResponse(phpResponse) {
   const headers = new Headers();
   if (phpResponse.headers) {
     for (const [key, values] of Object.entries(phpResponse.headers)) {
@@ -112,10 +117,14 @@ function phpResponseToResponse(phpResponse) {
     }
   }
 
-  return new Response(phpResponse.bytes, {
-    status: phpResponse.httpStatusCode,
-    headers,
-  });
+  const status = phpResponse.httpStatusCode;
+  return new Response(
+    NULL_BODY_STATUSES.has(status) ? null : phpResponse.bytes,
+    {
+      status,
+      headers,
+    },
+  );
 }
 
 /**
