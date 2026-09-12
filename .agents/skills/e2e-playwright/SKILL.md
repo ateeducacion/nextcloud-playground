@@ -1,55 +1,54 @@
 ---
-name: e2e-playwright
-description: Write or debug Nextcloud Playground Playwright specs in tests/e2e, including WASM readiness and nested app frames.
+description: Write or debug browser-playground Playwright tests for WASM readiness, nested app frames, provisioning, and reload behavior.
 metadata:
-  author: nextcloud-playground
-  version: "1.0"
+    author: playgrounds
+    github-path: .agents/skills/e2e-playwright
+    github-ref: refs/heads/main
+    github-repo: https://github.com/ateeducacion/moodle-playground
+    github-tree-sha: d506150ba0d10b59d46fface19dee8828ffdc173
+    version: "2.0"
+name: e2e-playwright
 ---
+# Browser-playground E2E tests
 
-# Nextcloud Playground E2E tests
+Use the E2E section of the host repository's
+[testing reference](../../references/playground-testing.md) for helpers, selectors,
+and runner settings. Keep this local reference outside the installed skill. If
+absent, inspect the nearest spec and `playwright.config.mjs` instead of assuming
+helpers from another playground exist.
 
-Use `tests/e2e/shell.spec.mjs` for the current readiness and blueprint patterns;
-`playwright.config.mjs` owns server startup, timeouts, and concurrency.
+## Readiness and assertions
 
-## Readiness and frames
+Shell readiness and application readiness are separate. The enabled address bar
+can show that the shell is usable before the application renders. Reuse existing
+readiness helpers and wait for the app content needed by the test.
 
-The shell becomes usable when `#address-input` is enabled and `#site-frame` has a
-scoped source. Use the existing spec's `waitForRuntimeReady` pattern. For Nextcloud
-content, wait inside both frame levels:
+The common frame layout is `#site-frame` (remote host) → `#remote-frame` (app).
+Confirm it in the host and target both levels for application assertions:
 
 ```js
-const nextcloud = page.frameLocator("#site-frame").frameLocator("#remote-frame");
+const app = page.frameLocator("#site-frame").frameLocator("#remote-frame");
 ```
 
-`#site-frame` alone is the remote host, not Nextcloud. Assert a real app selector
-or result; an address-bar change or blueprint textarea value does not prove that
-provisioning succeeded. Choose selectors appropriate to the active app and locale.
-Use condition-based waits; a fixed sleep does not establish boot readiness.
+An address-bar update or blueprint textarea value does not establish successful
+provisioning. Assert the resulting resource/content. Shell-only features can be
+asserted in the shell. Use condition-based waits, not fixed boot sleeps.
 
-## Isolation and reload
+## Isolation, reload, and debugging
 
-Browser contexts isolate scope state. `fullyParallel: false` is the existing
-configuration, not evidence that every browser tab shares one PHP runtime.
-Do not change worker counts as part of an unrelated test fix.
+Use the runner's existing timeout/concurrency settings. `fullyParallel: false`
+does not mean all tests or tabs share one runtime. Do not serialize the entire
+suite as an unrelated flakiness fix.
 
-Reload tests exercise IndexedDB journals. Wait for the relevant writes before
-reloading; shell readiness alone does not prove that the debounced flush finished.
-A fresh context avoids scope reuse but does not by itself invalidate all cached
-worker code. After runtime changes, rebuild and clear Service Worker caches.
+Avoid reusing another playground's dev server on the same port. Changing baseURL
+alone may not change the startup command; inspect configuration or start an
+isolated external server with matching URL and external-server settings.
 
-## Running and debugging
+For reload tests, wait for the relevant journal writes; shell readiness does not
+prove a debounced flush completed. Assert the retained application state. A fresh
+context isolates tab scope but is not a universal cache invalidation mechanism.
 
-```bash
-make test-e2e
-npx playwright test tests/e2e/shell.spec.mjs
-npx playwright test --headed --debug
-```
-
-The configured server starts on 8085. To target another port, start an isolated
-server and set both `PLAYWRIGHT_BASE_URL` and `PLAYWRIGHT_EXTERNAL_SERVER=1`.
-Changing baseURL alone does not change the hardcoded server command's port.
-Avoid sharing a dev server with sibling playgrounds via `reuseExistingServer`.
-
-Use the configured trace on failure and the shell logs to distinguish boot errors
-from a selector/readiness failure. Unit-level normalization and generated-script
-checks belong in `tests/*.test.mjs`; use the CLI skill for terminal exploration.
+Worker source changes require a rebuilt bundle. Clear Service Worker caches during
+manual verification; Reset Playground clears data. Inspect existing diagnostics,
+logs, and traces before adjusting selectors or increasing timeouts. Use the
+separate terminal browser skill for exploration, not as a test-generation policy.

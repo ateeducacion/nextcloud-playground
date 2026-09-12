@@ -1,68 +1,59 @@
 ---
-name: wasm-browser-runtime
-description: Debug Nextcloud Playground memory, core extraction, filesystem journaling, service-worker routing, or crash recovery.
+description: Debug browser-playground WASM memory, core extraction, filesystem journaling, service-worker routing, or crash recovery.
 metadata:
-  author: nextcloud-playground
-  version: "1.0"
+    author: playgrounds
+    github-path: .agents/skills/wasm-browser-runtime
+    github-ref: refs/heads/main
+    github-repo: https://github.com/ateeducacion/moodle-playground
+    github-tree-sha: 2f6d4f0b979be7618cfef8d4cf4e5e01eacb77ec
+    version: "2.0"
+name: wasm-browser-runtime
 ---
+# Browser WASM runtime
 
-# Nextcloud browser runtime
+For storage roots, cache policy, and recovery details, use the host repository's
+[runtime reference](../../references/php-wasm-runtime.md), especially its storage
+section. Keep that reference outside the installed skill so updates cannot replace
+local policy. If absent, inspect the host's persistence and recovery implementation.
 
-## Extraction and memory
+## Memory and extraction
 
-Browser files live in MEMFS; the feasibility spike used NODEFS and mounted host
-files without copying them. A successful Node spike is not a browser memory test.
-Use [feasibility notes](../../../docs/feasibility-spike.md) for historical evidence.
+MEMFS files occupy JS heap; PHP reads can copy bytes into WASM linear memory.
+Account for compressed buffers, decoder state, extracted files, and linear memory
+when diagnosing peaks. Streaming extraction avoids a whole uncompressed archive
+allocation but still retains the final filesystem. Keep integrity checks and
+archive-path validation; incomplete extraction must not be recorded as installed.
 
-Current core extraction streams `tar.zst` through `src/runtime/vfs.js` and
-`lib/streaming-tar-extract.js`; there is no ZIP core fallback. App ZIPs remain a
-separate path. See [bundle design](../../../docs/streaming-tar-zst-core-bundle.md)
-when changing the format. Keep integrity/file-count checks and fail on incomplete
-extraction instead of caching a partial install.
-
-The build trims the release tree in `scripts/build-nextcloud-bundle.sh`; preserve
-compiled `dist/` and `3rdparty/`. Measure the current artifact rather than treating
-old spike sizes or proposed app lists as a current budget. Use the installed
-MEMFS path; an OPFS migration requires a separate design, not an automatic fallback.
-
-The main loader configures 128 MiB initial WASM memory with growth. MEMFS contents
-also occupy JS heap; PHP reads can copy them into linear memory. Streaming avoids
-a full uncompressed tar allocation, but does not eliminate the compressed buffer
-or final extracted tree. Retain memory bounds on extraction and recovery.
+A NODEFS spike mounts host files without the browser's copying cost. Measure the
+current browser path instead of treating a successful Node run or old bundle size
+as a memory guarantee. Read configured limits; do not prescribe one universal
+memory ceiling or introduce OPFS as an automatic fallback.
 
 ## Journaling and recovery
 
-`src/runtime/fs-persistence.js` journals `/persist`, `/www/nextcloud/config`, and
-`/www/nextcloud/data` to `nextcloud-fs-journal:<scope>`. OPcache uses the separate
-`nextcloud-opcache:<phpVersion>` database. Both use an `ops` store. Do not copy
-Moodle's cache exclusions or FacturaScripts' OPcache keys into this implementation.
+MEMFS is volatile, but these hosts restore mutable state through IndexedDB journals.
+Read the actual journal roots, exclusions, and namespace rules before editing:
+OPcache policy and mutable paths differ between applications. A tab scope in
+sessionStorage does not imply IndexedDB is physically deleted when the tab closes.
 
-The scope normally lives in sessionStorage; reload can restore mutable state.
-Closing a tab does not guarantee IndexedDB deletion. Clean boot clears both
-journals and reinitializes persistence. Normalize before hydration so repeated
-SQLite writes are read only once. Preserve resilient replay and explicit flush
-failure handling in the current implementation.
+Normalize journal operations before hydrating file contents, including rename
+destinations. Preserve flush failures and resilient replay behavior; a failed
+checkpoint must not silently turn into a successful one. Clean boot must restart
+journaling after clearing data.
 
-For crash recovery, read `php-worker.js` and `src/runtime/crash-recovery.js`.
-MEMFS may remain readable after a WASM trap, but recovery still needs coherent
-DB/file checkpoints and bounded memory. Preserve restart guards and GET/HEAD-only
-replay; do not replay mutating requests.
+A WASM trap may leave MEMFS readable. Recovery still needs bounded snapshots and
+coherent DB/upload checkpoints. Follow the existing fallback when a checkpoint
+fails; do not restore a newer DB over older files. Keep restart guards and
+GET/HEAD-only replay; never replay a mutating request automatically.
 
-## Routing and workers
+## Routing and verification
 
-The shell hosts `#site-frame`, then `#remote-frame` for Nextcloud. Keep the scoped
-`/playground/<scope>/<runtime>/` path, front-controller/PATH_INFO handling, WebDAV
-`remote.php`, and OCS endpoints intact. Query strings and HTML-escaped URLs must
-survive rewriting. Use `src/shared/paths.js` for root/subdirectory hosting.
+Trace shell → remote host → Service Worker → PHP worker. Preserve scoped runtime
+paths and app base paths, redirects, query strings, HTML-escaped URLs, and forms.
+Keep cache keys isolated according to the host's scope/runtime/build policy.
+Use existing protocol definitions rather than illustrative message shapes.
 
-`trusted_domains` holds the host, `overwriteprotocol` holds only the scheme, and
-`overwrite.cli.url` carries the appropriate URL/base path. Do not put a subpath in
-the protocol field. Check the current config generator and HTTP adapter together.
-
-`src/shared/protocol.js` and worker callers define message shapes. The classic
-Service Worker bundle must stay at the app root to control the application.
-Rebuild via `npm run build-worker` after source/import changes and clear worker
-caches for browser checks; reset/clean boot only resets data.
-
-Verify affected routing in a real browser under both root and subpath hosting;
-verify cold extraction and warm reload when changing storage or bootstrap.
+A Service Worker's default maximum scope is its script directory; keep the classic
+bundle at the app root. Rebuild worker imports and clear stale worker caches for
+browser verification. Resetting data is not a code-cache refresh. Check affected
+routing under root and subpath hosting; check cold boot and reload for storage edits.
