@@ -1,233 +1,160 @@
 # AGENTS.md — Nextcloud Playground
 
-Guidance for AI agents and contributors working in this repository.
+Read only the guidance relevant to the task. Keep repository-wide constraints here;
+put domain details in the existing skills and documentation. If a guide disagrees
+with the implementation, verify the current code before restoring old behavior.
 
-## What this is
+## Working conventions
 
-A browser-based playground that runs **Nextcloud server** entirely client-side
-via php-wasm (the WordPress Playground `@php-wasm` runtime), like the sibling
-Moodle / Omeka S / FacturaScripts playgrounds. It is the first known port of
-Nextcloud to php-wasm; the feasibility work and the exact patch set are in
-[`docs/feasibility-spike.md`](docs/feasibility-spike.md) — **read it first**.
+- Branch names must be English and start with `feature/` or `hotfix/`; rename
+  nonconforming branches before pushing or opening a PR. Never use `codex/`.
+- For library/API/CLI questions, resolve the library in Context7 and query current
+  documentation. General code review and business-logic refactoring do not need it.
+- Complete requested edits and relevant local verification without asking between
+  routine steps. Report what was checked and any blocker.
+- Keep ESM and the existing path helpers: URL paths and POSIX filesystem paths
+  are different. Do not add framework dependencies without an explicit requirement.
 
-## Architecture
+## Runtime and build map
 
-```
-index.html → remote.html → sw.js (Service Worker) → php-worker.js
-  → @php-wasm (PHP 8.3 + intl)
-      ├─ Nextcloud core in MEMFS (extracted from a per-version ZIP bundle)
-      └─ SQLite + data dir in MEMFS (ephemeral)
-```
+Nextcloud runs in browser PHP WASM:
+`index.html` → `src/shell/main.js` → `remote.html` → `src/remote/main.js` →
+`sw.js` → bundled `php-worker.js` → `src/runtime/php-loader.js` →
+`php-compat.js` → `bootstrap.js`.
 
-Boot sequence (`src/runtime/bootstrap.js`):
-1. Resolve the per-version manifest (`assets/manifests/nextcloud-<major>.json`).
-2. Extract the ZIP bundle into MEMFS at `/www/nextcloud` (`src/runtime/vfs.js`,
-   `lib/nextcloud-loader.js`).
-3. Write the **posix polyfill** prepend and set `auto_prepend_file` +
-   `memory_limit=512M` (`src/runtime/php-prepend.js`).
-4. Run `occ maintenance:install --database sqlite` in CLI mode
-   (`src/runtime/install-script.js`), then merge playground config keys.
-5. Execute blueprint steps via `occ` (`src/runtime/blueprint-steps.js`).
-6. Serve pages through `php.request()` (`src/runtime/php-compat.js`), which maps
-   `/index.php/...` PATH_INFO and clean URLs to the front controller.
+Core streams from `tar.zst` into `/www/nextcloud` through `src/runtime/vfs.js`
+and `lib/streaming-tar-extract.js`; the old ZIP core path has no fallback. ZIPs
+remain relevant to app installation. See [bundle design](docs/streaming-tar-zst-core-bundle.md)
+when changing archive layout or extraction.
 
-## The WASM patch set (critical)
+| Task | Command |
+|------|---------|
+| Prepare runtime/worker assets | `make prepare` |
+| Build selected release | `make bundle` (`NC_MAJOR`, `NC_RELEASE`) |
+| Build supported releases | `make bundle-all` |
+| Serve existing assets | `make serve` (port 8085) |
+| Build and serve | `make up` |
 
-The build (`scripts/build-nextcloud-bundle.sh`) applies five source patches,
-**all gated on `PHP_SAPI === 'wasm'`** so they are no-ops on a real server:
+Building needs Node >= 22.15 for native zstd, npm, and the tools listed in
+[development](docs/development.md). Nextcloud release tarballs already contain
+`3rdparty/` and compiled `dist/`; do not run Composer/npm inside the downloaded
+core. Versions/defaults live in `src/shared/nextcloud-versions.js`, not this guide.
+Generated output is under `assets/nextcloud/`, `assets/manifests/`, and `dist/`.
 
-1. `lib/base.php` — treat occ (no `REQUEST_URI`) as CLI under the `wasm` SAPI.
-2. `lib/private/Config.php` — skip the unreliable shared `flock` (×1).
-3. `lib/private/Config.php` — skip the unreliable exclusive `flock` (×1).
-4. `console.php` — skip the posix uid/owner-mismatch refusal.
-5. `lib/private/Avatar/Avatar.php` — guard `imagettfbbox` returning `false`.
+## Nextcloud invariants
 
-Plus the posix polyfill (the build is `--disable-posix`; Nextcloud requires
-posix and calls it unguarded). occ is invoked by requiring `console.php`, never
-`occ` directly (its shebang breaks `declare(strict_types=1)`).
+- `PHP_SAPI` is `wasm`. Run occ through the shebang-free `console.php` wrapper
+  (`buildOccScript`), with `REQUEST_URI` unset; requiring `occ` emits its shebang
+  and breaks `strict_types`. Keep web requests distinguishable from CLI requests.
+- The posix polyfill must load before Nextcloud code. Browser prepend path:
+  `/internal/shared/auto_prepend_file.php`. The browser loader requests `intl`.
+- Preserve the WASM-specific CLI/config-lock/owner-check patches and failed-font
+  fallback in `scripts/build-nextcloud-bundle.sh`. Check the script for exact
+  gates: the avatar fallback is guarded by a failed `imagettfbbox`, not by SAPI.
+- No native subprocesses, real cron, Redis/APCu, or external preview binaries are
+  available. Keep the existing safe configuration and spawn-handler behavior.
+- `nextcloud-fs-journal:<scope>` journals `/persist`, `/www/nextcloud/config`, and
+  `/www/nextcloud/data`; the DB is `data/owncloud.db`. Do not reduce persistence to
+  `/persist` alone. See `bootstrap-paths.js` and `fs-persistence.js`.
+- `nextcloud-opcache:<phpVersion>` separately persists OPcache. Clean boot clears
+  both journals. This is Nextcloud's current key, not FacturaScripts' bundle-hash key.
+- Install reuse depends on installed config and matching manifest state. Blueprint
+  steps still execute on reload; failed `installApp` steps prevent caching a fresh
+  install as complete. Preserve that retry behavior in `bootstrap.js`.
+- Blueprint normalization is already Nextcloud-specific (`admin`, `apps`, `steps`),
+  not a pending FacturaScripts migration. Keep [blueprint docs](docs/blueprint-json.md),
+  schema, `src/shared/blueprint.js`, and `src/runtime/blueprint-steps.js` aligned.
+- Never add AI attribution to commits or PRs.
 
-## Build & commands
+Use [feasibility notes](docs/feasibility-spike.md) for historical patch rationale
+and [known issues](docs/KNOWN-ISSUES.md) for limitations. The Node/NODEFS spike does
+not establish browser memory behavior; verify current MEMFS extraction instead.
 
-```
-make prepare     # sync browser deps + build worker bundle
-make bundle      # build one bundle (NC_MAJOR / NC_RELEASE env, default 31)
-make bundle-all  # NC 30, 31, 32
-make serve       # http://localhost:8085
-make test        # node --test tests/*.test.mjs
-make test-e2e    # Playwright
-make lint        # Biome
-```
+## Shared runtime constraints
 
-Nextcloud **release tarballs** are pre-built (vendor/ + compiled JS included), so
-the build does NO composer/npm — it downloads, patches, trims (~807 MB → ~345 MB),
-and zips per version. Supported versions live in
-`src/shared/nextcloud-versions.js`.
+- The shell's `#site-frame` hosts `remote.html`, which hosts `#remote-frame` for
+  `/playground/<scope>/<runtime>/...`. Preserve root and subpath hosting, scoped
+  redirects, query strings, and HTML-escaped links/forms when changing routing.
+- PHP state and PDO connections reset per execution. SQLite must remain a file in
+  MEMFS, never `:memory:`. Preserve the core/mutable separation; do not copy the
+  entire core into persistent storage on boot.
+- Mutable data is journaled to IndexedDB and restored for reloads. Scope normally
+  comes from `sessionStorage`; new tabs normally get a new environment, while
+  duplicated tabs or an explicit `?scope=` can reuse a scope. Closing a tab does
+  not guarantee deletion of the underlying IndexedDB database.
+- A different blueprint source or Reset Playground forces a clean boot; reloading
+  the same blueprint retains the journal. Keep journaling active after clearing it.
+  Source identity is defined in `src/shared/paths.js` and handled by the shell.
+- Normalize journal operations before hydration to avoid copying every repeated
+  SQLite write. Keep recovery checkpoints coherent; replay only safe GET/HEAD
+  requests after a crash, with restart-loop guards intact.
+- Worker and Service Worker changes, including their runtime/blueprint imports,
+  require `npm run build-worker`. Clear Service Worker caches before manual
+  verification; Reset Playground and `?clean=1` clear data, not stale code bundles.
+- Keep the classic Service Worker bundle at the app root so its scope covers the
+  application. Generated assets and bundles must not be hand-edited unless the
+  task specifically concerns build output.
 
-### Validation harnesses (node, headless)
+## Verification and debugging
 
-- `spike/run-spike.mjs` — NODEFS-mount the raw source, install, render login.
-- `spike/boot-from-bundle.mjs` — extract the BUILT bundle into MEMFS (the real
-  browser path) and boot it. Run after `make bundle` to validate end-to-end.
+Use `package.json`, `Makefile`, and `playwright.config.mjs` for current commands
+and runner settings. `make test` runs Node unit tests; `make lint` checks code;
+`make format` applies formatting; `npm run test:e2e` runs browser tests.
+Run checks appropriate to the changed behavior. Documentation-only edits need
+link/frontmatter checks; they do not require rebuilding PHP or running every E2E.
 
-## Blueprints
+For runtime changes, verify clean boot, reload, and the affected UI flow. Reuse the
+existing specs in `tests/e2e/`: an enabled `#address-input` is a shell readiness gate,
+not proof that application content rendered. Check content in the nested
+`#remote-frame` when that is the behavior under test. Default credentials and
+runtime choices are in `playground.config.json`.
 
-JSON → `occ` commands (plus `login` / `createShare` / `writeFile`, which are
-not occ). Shape: `meta`, `debug`, `landingPage`, `siteOptions`,
-`admin`, `apps[]` (shorthand for `enableApp`), `steps[]`. Step types:
-`installNextcloud`, `login`, `enableApp`, `disableApp`, `createUser`,
-`createGroup`, `addUserToGroup`, `setConfig`, `installApp`, `writeFile`,
-`createShare`, `unzip`, `runOcc`. Engine: `src/shared/blueprint.js` +
-`src/runtime/blueprint-steps.js`. Schema: `assets/blueprints/blueprint-schema.json`.
+Do not run sibling playground tests against a shared port: `reuseExistingServer`
+can connect tests to the wrong app. For an isolated external server use its own
+`PORT`, `PLAYWRIGHT_BASE_URL`, and `PLAYWRIGHT_EXTERNAL_SERVER=1`.
 
 ## Skills
 
-Specialist skills under `.agents/skills/`: `nextcloud-internals` (occ, config,
-the patch set — start here), `wasm-browser-runtime`, `wp-playground-php-wasm`,
-`blueprint-provisioning`, `unit-testing`, `e2e-playwright`.
+Load a skill when the task needs its guidance; apply only relevant checks.
 
-### Third-party skills
+| Skill | Use for |
+|-------|---------|
+| [nextcloud-internals](.agents/skills/nextcloud-internals/SKILL.md) | Application-specific PHP, install, plugins/addons, and provisioning |
+| [wp-playground-php-wasm](.agents/skills/wp-playground-php-wasm/SKILL.md) | PHP lifecycle, ini, prepend, networking |
+| [wasm-browser-runtime](.agents/skills/wasm-browser-runtime/SKILL.md) | MEMFS, extraction, journal/recovery, SW routing |
+| [blueprint-provisioning](.agents/skills/blueprint-provisioning/SKILL.md) | Nextcloud blueprint normalization and steps |
+| [unit-testing](.agents/skills/unit-testing/SKILL.md) | Node unit tests |
+| [e2e-playwright](.agents/skills/e2e-playwright/SKILL.md) | Playwright test authoring and debugging |
+| [security-audit](.agents/skills/security-audit/SKILL.md) | Application vulnerability audits |
+| [github-actions-hardening](.agents/skills/github-actions-hardening/SKILL.md) | Writing or reviewing .github/workflows/*.yml |
+| [playwright-cli](.agents/skills/playwright-cli/SKILL.md) | Terminal-driven browser exploration |
 
-Alongside the in-house skills, `.agents/skills/` vendors three upstream skills for tools this
-project is built with. They are installed with the GitHub CLI, which copies the skill into
-`.agents/skills/<name>/` (the directory GitHub Copilot, Codex, Cursor, Gemini CLI and most
-other agents read) and records the upstream repository, path and tree SHA in the `SKILL.md`
-frontmatter so the copy can be refreshed later (`gh skill add` is an alias of `gh skill install`):
+### Skill maintenance
+
+Canonical skills live in `.agents/skills/`; `.claude/skills/` contains symlinks to
+those directories. Keep one copy. `gh skills` is an alias of `gh skill`.
 
 ```bash
+gh skill list --scope project
+gh skill update --dir .agents/skills --dry-run
 gh skill add cloudflare/security-audit-skill security-audit --agent github-copilot
 ln -s ../../.agents/skills/security-audit .claude/skills/security-audit
-gh skill update --all    # refresh every vendored skill
 ```
 
-| Skill | Read it before | Origin |
-|-------|----------------|--------|
-| `security-audit` | Hunting vulnerabilities or validating a security finding in application code: a multi-agent recon → hunt → validate → report pipeline that only reports exploitable issues | [`cloudflare/security-audit-skill`](https://github.com/cloudflare/security-audit-skill), MIT |
-| `github-actions-hardening` | Reviewing, hardening or writing any `.github/workflows/*.yml`: per-job `permissions:`, SHA-pinned third-party actions, `${{ }}` injection via `env:`, privileged triggers. Report-only by default; apply the edits when asked. Policy here: first-party `actions/*` stay on major tags kept current by Dependabot; pin third-party actions to a commit SHA with a version comment, as `update-agent-skills.yml` does | [`github/awesome-copilot`](https://github.com/github/awesome-copilot), MIT |
-| `playwright-cli` | Driving the running playground from the terminal with `npx playwright cli`: snapshot and click through the nested iframes, read console and network output, mock routes, or attach to a spec paused with `npx playwright test --debug=cli`. Not for authoring `tests/e2e/*.spec.mjs` (`e2e-playwright` stays authoritative there), and ignore its plan/generate test-generation flow | [`microsoft/playwright-cli`](https://github.com/microsoft/playwright-cli), Apache-2.0 |
+The three vendored skills are `security-audit` (cloudflare/security-audit-skill),
+`github-actions-hardening` (github/awesome-copilot), and `playwright-cli`
+(microsoft/playwright-cli). Keep their contents and `metadata.github-*` provenance
+verbatim. Fix upstream and reinstall; do not edit the local copies. In-house skills
+have no GitHub provenance and are maintained here.
 
-Rules for vendored skills:
+`.github/workflows/update-agent-skills.yml` opens weekly update PRs. Review prompt
+diffs as behavior changes. Scope manual updates to `.agents/skills` so unrelated
+user skills are untouched. Keep in-house descriptions short and task-specific;
+link to conditional details instead of copying manuals or volatile inventories.
 
-- **Keep them verbatim.** Never reformat or edit a vendored skill: local changes diverge from
-  upstream and `gh skill update` overwrites them. Fix it upstream and re-install. Provenance
-  lives in each `SKILL.md` frontmatter (`metadata.github-repo`, `github-path`,
-  `github-tree-sha`); in-house skills carry no such metadata and the updater skips them.
-- **One copy, symlinked for Claude Code.** Claude Code only scans `.claude/skills/`, so every
-  skill — in-house or vendored — is exposed there as a symlink to its `.agents/skills/`
-  directory. Do not copy a `SKILL.md`; link it.
-- **Updates arrive as pull requests.** `.github/workflows/update-agent-skills.yml` runs
-  `gh skill update --all` every Monday and opens a PR when an upstream skill changed. Skills
-  are prompts, so review that diff as a behaviour change.
-- **Project rules win.** Vendored skills describe their tool in general; where one disagrees
-  with this file or an in-house skill, the repository's conventions apply.
-- **No WordPress Playground skills, deliberately.** `WordPress/agent-skills` `blueprint` and
-  `wp-playground` describe WordPress Blueprints, whose schema shares step names with ours
-  (`login`, `writeFile`, `unzip`, …) but not their shapes; an agent following them would
-  rewrite our blueprints into WordPress ones. `blueprint-provisioning` is the authority here.
-
-## Gotchas
-
-- SAPI is `wasm`, not `cli` — drives the base.php patch and occ vs web routing.
-- `proc_open`/`exec` can't spawn; previews, office, antivirus are disabled in
-  config (`enabledPreviewProviders => []`). See `docs/KNOWN-ISSUES.md`.
-- State is ephemeral (MEMFS). Each boot reinstalls (~4 s).
-- Bundle size is the main browser constraint; the build trims aggressively.
-  Removing more shipped apps (in the build script's trim list) shrinks it further.
-- Never add AI attribution to commits or PRs.
-
-## Debugging
-
-### By hand (in the browser)
-
-Serve locally and open it in a browser:
-
-```
-make serve            # http://localhost:8085 (PORT defaults to 8085)
-# PORT=9090 make serve # override; a port < 1024 fails with EACCES
-```
-
-Then open `http://localhost:<port>/`. The page at `/` is the **shell** — it boots a
-Web Worker (PHP) plus a Service Worker that serves the actual Nextcloud app under
-`/playground/<scope>/<runtime>/…` inside the `#site-frame` iframe. `<scope>` is a
-sessionStorage id (a `crypto.randomUUID()` under `nextcloud-playground:active`), so a
-scope lives only within the browser session. The runtime is **slow to boot** — it is
-ready when `#address-input` is enabled (and `#site-frame`'s `src` carries a `scope=`),
-so poll for it rather than assuming it is up. Log in with the admin creds from
-`playground.config.json` (`admin` / `admin`).
-
-Persistence lives in IndexedDB and is keyed two ways (see `src/runtime/fs-persistence.js`):
-
-- `nextcloud-fs-journal:<scope>` — `/persist`, per-session **real** data only (DB,
-  config, sessions); derived caches are deliberately *not* persisted here.
-- `nextcloud-opcache:<phpVersion>` — `/internal/shared/opcache`, cross-session OPcache
-  so PHP recompiles only once (later sessions boot much faster).
-
-Both use the `ops` object store. Dump a journal from the **page console**:
-
-```js
-const dump = (name) => new Promise((resolve, reject) => {
-  const open = indexedDB.open(name);
-  open.onsuccess = () => {
-    const all = open.result.transaction("ops", "readonly").objectStore("ops").getAll();
-    all.onsuccess = () => resolve(all.result);
-    all.onerror = () => reject(all.error);
-  };
-  open.onerror = () => reject(open.error);
-});
-const scope = sessionStorage.getItem("nextcloud-playground:active");
-console.log("persist", await dump(`nextcloud-fs-journal:${scope}`));
-console.log("opcache", await dump("nextcloud-opcache:8.3"));
-```
-
-On reload the journals are re-applied via `replayResilient`, which replays the whole
-batch first and, on any failure, retries op-by-op and skips the un-appliable ones — so a
-single bad journal op (e.g. a dangling unlink) never bricks boot. Note the core itself is
-extracted into the webroot by PHP's `ZipArchive` (`buildCoreExtractScript` in
-`src/runtime/install-script.js`), not unzipped in JS, to avoid MEMFS OOM.
-
-### With the e2e suite (Playwright)
-
-Tests live in `tests/e2e/*.spec.mjs` (currently `shell.spec.mjs`). Run them with:
-
-```
-make test-e2e   # = npm run test:e2e = playwright test
-```
-
-`playwright.config.mjs` starts the dev server on port 8085 itself (running `make up` if no
-bundle exists yet) and points `baseURL` at `http://127.0.0.1:8085`; set
-`PLAYWRIGHT_EXTERNAL_SERVER=1` to drive an already-running server. The specs cover the boot
-gate (waiting on `#address-input` + the scoped `#site-frame` src), the side panel /
-phpinfo / blueprint tabs, and the persistence round-trip.
-
-**Gotcha:** run each sibling playground's e2e on its own. `reuseExistingServer` (enabled
-outside CI) means concurrent Playwright runs latch onto whatever is already listening on
-port 8085, so two playgrounds running at once share a dev server and cross-contaminate each
-other's apps.
-
-## Persistence model (per-tab storage + blueprint reset)
-
-Mutable state under `/persist` is journaled to IndexedDB (`nextcloud-fs-journal:<scope>`) via
-`@php-wasm/fs-journal`, so it survives reloads. Key facts for future work:
-
-- **Per-tab, within-session.** `scopeId` lives in `sessionStorage`, so each
-  browser tab/window has its own environment. Opening the playground in a new tab
-  starts clean — nothing is shared (only *duplicating* a tab copies
-  `sessionStorage`). State is lost when the tab closes.
-- **A different blueprint starts fresh.** The persisted env is keyed by the
-  blueprint *source* — `blueprintSourceKey(href)` in `src/shared/paths.js`
-  (`url:<value>` for `?blueprint-url=`, `inline:<hash>` for `?blueprint=` /
-  `?blueprint-data=`, else `default`) — remembered per scope in `sessionStorage`
-  (`blueprint-source:<scope>`). Loading a **different** blueprint in the same tab
-  forces a clean boot (discards the previous `/persist` and installs fresh);
-  **reloading the same blueprint keeps the data.** (Same intent as WordPress
-  Playground, which serves URL blueprints as temporary by default and keys
-  persisted sites per site-slug.)
-- **Clean boot wiring.** On a clean boot the shell adds `&clean=1` to the
-  `#site-frame` remote URL; the worker then `clearJournal`s and **re-starts
-  journaling** (`initFsPersistence` runs after the clear in
-  `src/runtime/php-loader.js`) so the fresh env persists on later reloads. The
-  `#reset-button` triggers the same path.
-- **Flush.** On each debounced flush the journal collapses ops *before* hydrating
-  (`collapseAndHydrate` = `hydrateUpdateFileOps(php, normalizeFilesystemOperations(ops))`)
-  so a heavy install that rewrites the SQLite DB hundreds of times doesn't OOM.
-- **Inspect:** `await indexedDB.databases()` → open `nextcloud-fs-journal:<scope>` → read the
-  `ops` object store.
+Repository conventions override vendored guidance. For GitHub Actions,
+first-party `actions/*` stay on major tags maintained by Dependabot; third-party
+actions use commit SHAs with version comments. Apply requested hardening edits.
+Use the CLI skill for terminal browser exploration, not its plan/generate flow
+for test authoring. Do not install WordPress Blueprint skills: shared step names
+hide incompatible schemas; this project's schema and blueprint docs are authoritative.

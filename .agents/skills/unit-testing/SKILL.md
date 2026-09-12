@@ -1,120 +1,42 @@
 ---
 name: unit-testing
-description: Node built-in test runner expert for the Nextcloud playground. Use when writing or debugging node:test / node --test unit tests for blueprint parsing/normalization, shared paths, storage, the posix/PHP prepend generation, and occ/install-script generation. References tests/*.test.mjs and the helpers they cover in src/shared and src/runtime.
+description: Write or review Nextcloud Playground Node unit tests for normalization, paths, journaling, and generated PHP/occ scripts.
 metadata:
   author: nextcloud-playground
   version: "1.0"
 ---
 
-# Unit Testing Expert (node:test)
+# Nextcloud Playground unit tests
 
-## Role
-
-You write and maintain the fast, dependency-free unit suite that runs with
-Node's built-in test runner. These tests cover **pure helpers** — blueprint
-parsing/normalization, path math, storage helpers, and PHP/occ code generation —
-without booting WASM or a browser. Browser/runtime behaviour is covered
-separately by the Playwright suite (see the `e2e-playwright` skill).
-
-## How to run
+The suite uses `node:test` and `node:assert/strict`, importing source directly.
+Tests live in `tests/*.test.mjs`; use the nearest test's setup instead of creating
+another framework or duplicating a helper.
 
 ```bash
-make test            # node --test tests/*.test.mjs
-npm test             # same
-node --test tests/blueprint.test.mjs           # a single file
-node --test --test-name-pattern "normalizeSettings"  # filter by name
+make test
+node --test tests/blueprint.test.mjs
+node --test tests/blueprint-steps.test.mjs
 ```
 
-The runner discovers `tests/*.test.mjs`. Tests are ESM (`"type": "module"` in
-`package.json`) and import directly from `src/` — no build step, no transpile.
+## Useful checks
 
-## Test file conventions
+- Blueprint normalization: actual Nextcloud `admin`, `apps`, and `steps` shapes,
+  legacy aliases, defaults, invalid inputs, and handler dispatch.
+- Generated occ scripts: safe argv/env encoding, no shebang, `REQUEST_URI` unset,
+  and the `console.php` wrapper. Use current `buildOccScript` output, not an
+  obsolete FacturaScripts Forja-cache or `normalizeSettings` example.
+- Step results: exit-status/error handling, user-file scans, and explicit login.
+- Persistence and paths: scoped keys, normalization before hydration, rename
+  destinations, failure behavior, and subdirectory routing.
 
-```js
-import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import { normalizeBlueprint } from "../src/shared/blueprint.js";
+Assert observable behavior or a specific generated-code invariant that would
+catch a regression. Mocks should cover only the boundary needed by the test;
+exercise browser-dependent helpers with suitable fakes when that is the target,
+rather than only testing their early-return Node branch.
 
-describe("normalizeBlueprint", () => {
-  it("defaults settings to an empty object", () => {
-    const result = normalizeBlueprint({}, baseConfig);
-    assert.deepEqual(result.settings, {});
-  });
-});
-```
+Actual Nextcloud HTML, service-worker interception, and browser boot need E2E
+verification. The Node/NODEFS spike can check PHP execution but does not establish
+browser MEMFS behavior. Keep those checks separate from fast unit tests.
 
-- Use `node:assert/strict` (`assert.equal`, `deepEqual`, `match`, `throws`).
-- Use `describe`/`it` from `node:test`.
-- Keep tests **pure**: no network, no WASM, no `window`. Browser-only helpers
-  guard on `typeof window !== "undefined"` and return early in Node — tests
-  exercise the Node branch.
-- Import the real module under `../src/...`; do not duplicate logic in the test.
-
-## What's covered today (`tests/`)
-
-| File | Subject |
-|---|---|
-| `tests/blueprint.test.mjs` | `normalizeInstall`, `normalizeBlueprint`, `buildDefaultBlueprint`, `buildEffectivePlaygroundConfig`, seed `_unique` dedupe, `normalizeSettings` coercion/dropping. |
-| `tests/blueprint-steps.test.mjs` | `login` / `createShare` / `installNextcloud` handlers, documented field aliases (`uid`/`gid`/`appId`), share-type/permission mapping, writeFile user-files scan. |
-| `tests/bootstrap-prepend.test.mjs` | `buildPhpPrepend()` from `src/runtime/php-prepend.js` — asserts it starts with `<?php`, seeds the offline cache, writes on every request. |
-| `tests/shared-paths.test.mjs` | `src/shared/paths.js` base-path / subdirectory math. |
-| `tests/shared-storage.test.mjs` | `src/shared/storage.js` persistence helpers. |
-
-## Patterns worth following
-
-### Test the generated PHP/occ as text
-
-The prepend and occ/install scripts are generated as **strings**. Assert on the
-generated text with `assert.match` / `includes`, not by executing PHP:
-
-```js
-const script = buildPhpPrepend();
-assert.ok(script.startsWith("<?php"));
-assert.match(script, /file_put_contents\(.+\.cache.+,\s*'a:0:\{\}'\)/);
-```
-
-For the occ wrapper generator (as the Nextcloud steps land), assert that it:
-
-- starts with `<?php` (no shebang — the shebang would break `strict_types`),
-- sets `$_SERVER['argv']` to the expected JSON-encoded argv array,
-- `unset($_SERVER['REQUEST_URI'])` is present (CLI detection under `wasm`),
-- `chdir(...)` + `require '.../console.php'` are present,
-- secrets are referenced via env (`OC_PASS`), not inlined.
-
-### Normalization: defaults, coercion, dropping, dedupe
-
-Blueprint normalization is the densest test surface. Cover: undefined/null →
-defaults; scalar coercion (numbers/booleans → strings, `true`→`"1"`); dropping of
-non-object groups, nested objects, arrays, nulls; duplicate-key rejection
-(`assert.throws(..., /duplicate/i)`); path normalization (leading `/`).
-
-### Error cases
-
-Use `assert.throws(fn, /regex/)` for the validation paths
-(`normalizePluginCollection` single-segment names, duplicate entries, empty
-`_unique` values). Match the message, not just that it throws.
-
-## Adding a new test
-
-1. Create `tests/<area>.test.mjs`.
-2. Import the real helper from `src/`.
-3. Cover the happy path, at least one coercion/normalization edge, and one error
-   case.
-4. `node --test tests/<area>.test.mjs` — must be green.
-5. `make lint` (Biome) before committing.
-
-## Boundaries
-
-- Don't boot `@php-wasm` here — that's slow and belongs to the spike / e2e.
-- Don't assert on real Nextcloud HTML output — that's e2e.
-- Don't depend on `window`, `fetch`, `sessionStorage` without the Node guard the
-  helper already provides.
-
-## Checklist
-
-- [ ] File matches `tests/*.test.mjs` and is ESM?
-- [ ] Imports the real `src/` helper (no logic duplication)?
-- [ ] Pure (no network/WASM/browser)?
-- [ ] Covers defaults, coercion/normalization, and an error case?
-- [ ] Generated-script tests assert on text (`<?php`, argv, `REQUEST_URI`)?
-- [ ] `make test` and `make lint` pass?
+Run the affected tests and code lint after logic/test edits; use the full unit
+suite when shared behavior changes. Source tests do not rebuild worker bundles.
