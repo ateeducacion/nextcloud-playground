@@ -1,6 +1,6 @@
 ---
 name: nextcloud-internals
-description: Nextcloud server domain expert for the php-wasm playground. Use for occ commands (maintenance:install, app:enable/disable, config:system:set, user:add, group:adduser, status), config/config.php keys (datadirectory, dbtype=sqlite3, trusted_domains, overwrite.cli.url, filelocking.enabled, enabledPreviewProviders, check_data_directory_permissions, memcache.local), the apps/ + core/shipped.json system, SQLite usage, AJAX cron, and CRITICALLY the WASM constraints plus the exact source-patch set (posix polyfill, base.php CLI detection under SAPI 'wasm', Config.php flock, console.php owner check, Avatar.php bbox, the console.php occ wrapper). This is the most important skill in this repo — base every claim on docs/feasibility-spike.md.
+description: Change Nextcloud install/configuration, app lifecycle, SQLite integration, or WASM compatibility patches in this playground.
 metadata:
   author: nextcloud-playground
   version: "1.0"
@@ -8,37 +8,12 @@ metadata:
 
 # Nextcloud Server Internals (php-wasm Playground)
 
-## Role
+## Evidence and current implementation
 
-You are the Nextcloud server expert for this playground. You know how Nextcloud
-installs and runs against SQLite, how `occ` drives provisioning, which
-`config/config.php` keys matter under WASM, how the `apps/` + `core/shipped.json`
-system works, and — most importantly — the **exact** set of source patches and
-runtime workarounds that make Nextcloud's PHP run under the `@php-wasm` runtime
-where `php_sapi_name()` returns `wasm` and the `posix` extension is absent.
-
-**The authoritative reference is [`docs/feasibility-spike.md`](../../../docs/feasibility-spike.md).**
-Every constraint and patch below comes from that proven Phase-0 spike. Do not
-invent behaviour the spike says does not work.
-
-## What the spike proved
-
-Nextcloud **31.0.14** installs against **SQLite** and serves its login page under
-php-wasm (PHP **8.3.31**) with:
-
-- a **posix polyfill** loaded via `auto_prepend_file`,
-- a **5-patch source set** gated on `PHP_SAPI === 'wasm'` (no-ops on a real server),
-- the **intl** extension loaded explicitly,
-- `occ` invoked through a **shebang-free wrapper** around `console.php`.
-
-Clean spike result: `occ maintenance:install` exits 0 → "Nextcloud was
-successfully installed", `config/config.php` gets `'installed' => true`,
-`status.php` returns `{"installed":true,...,"versionstring":"31.0.14"}`, and
-`/index.php/login` renders 17 KB of real login HTML. The remaining hard problem
-is **bundle size / browser memory** (807 MB extracted), solved at build time.
-
-The supported versions live in `src/shared/nextcloud-versions.js`: majors **30,
-31 (default), 32**, all built against php-wasm **8.3**.
+Use [feasibility notes](../../../docs/feasibility-spike.md) for the original
+Node/NODEFS experiment and patch rationale. Check current build/runtime code for
+implemented behavior; the spike is not a browser benchmark or a frozen contract.
+Supported/default releases live in `src/shared/nextcloud-versions.js`.
 
 ## occ: the provisioning surface
 
@@ -126,7 +101,7 @@ Default-enabled core set worth keeping for a usable demo: `files`, `dav`,
 
 - DB is a single SQLite file under `datadirectory` (`owncloud.db` by default).
 - `php-wasm` ships `pdo_sqlite` + `sqlite3`; the file lives in MEMFS, so it is
-  **ephemeral** unless journalled to persistence.
+  volatile in MEMFS, with config/data journaled to IndexedDB for reloads.
 - Because each `php.run()` is a fresh PHP lifecycle, the DB **must** be a real
   file, never `:memory:` — an in-memory DB would be empty on the next request.
 - `filelocking.enabled => false` is required; SQLite's own locking plus
@@ -144,9 +119,9 @@ Default-enabled core set worth keeping for a usable demo: `files`, `dav`,
 
 ## CRITICAL: the WASM patch set
 
-All five patches are gated on `PHP_SAPI === 'wasm'`, so they are **no-ops on a
-normal server** and safe/minimal. They are applied at build time to the
-Nextcloud source. The posix polyfill is applied at runtime via
+The CLI/config-lock/owner-check patches are SAPI-gated. The avatar fallback
+is guarded by the failed font operation itself. They are applied at build time
+by `scripts/build-nextcloud-bundle.sh`; check that script for the exact gates. The posix polyfill is applied at runtime via
 `auto_prepend_file`.
 
 ### 0. posix polyfill (`auto_prepend_file`)
@@ -168,7 +143,7 @@ Functions stubbed include: `posix_getuid/geteuid/getgid/getegid`,
 `posix_strerror`. Each is guarded with `if (!function_exists(...))` so it never
 clobbers a real posix build.
 
-### 1–5. Source patches (gated on `PHP_SAPI === 'wasm'`)
+### Source patches
 
 | # | File:line | Original | Patch | Why |
 |---|---|---|---|---|
@@ -178,8 +153,8 @@ clobbers a real posix build.
 | 4 | `console.php:50` | `if ($user !== $configUser) {` | `… && PHP_SAPI !== 'wasm') {` | occ refuses to run when `posix_getuid()` (33) ≠ the config.php file owner; that ownership check is meaningless in the sandbox. |
 | 5 | `lib/private/Avatar/Avatar.php:194` | (after `imagettfbbox(...)`) | `if (!is_array($box)) { return [0, (int)$size]; }` | php-wasm GD/FreeType cannot parse the bundled 8.7 MB `NotoSans-Regular.ttf`; `imagettfbbox` returns `false` → `abs(null)` TypeError during letter-avatar generation (triggered by `--admin-email` and in the UI). The guard falls back to a solid-colour avatar. |
 
-When you touch the Nextcloud source or the build pipeline, keep these patches
-exactly gated on `PHP_SAPI === 'wasm'`. Widening the gate (e.g. dropping the
+When you touch the Nextcloud source or the build pipeline, preserve the current
+WASM-specific gates and failed-font guard. Widening the gate (e.g. dropping the
 `REQUEST_URI` check on patch #1) breaks the CLI/web split and will route web
 requests through occ logic.
 
@@ -191,21 +166,13 @@ Preview generation (ffmpeg/libreoffice/imagick), antivirus, anything using
 Redis/APCu caching, and likely collaborative/office features. What works: basic
 file ops, **WebDAV via `remote.php`** (basic), and the core web UI.
 
-## Bundle size (the real risk)
+## Bundle constraints
 
-Nextcloud 31 extracts to **807 MB / 26,865 files** — far too heavy for a browser
-tab (MEMFS). Breakdown: `apps/` 509 MB, `core/` 120 MB, `3rdparty/` 90 MB,
-`dist/` 69 MB. Build-time trimming (see `wasm-browser-runtime` skill and the
-bundle scripts):
-
-- strip `**/tests/`, `**/*.map`, `**/cypress/`, `**/screenshots/`, `**/l10n/*.po`;
-- drop heavy optional shipped apps (`password_policy`, `photos`, `text`,
-  `suspicious_login`, `files_pdfviewer`…) not needed for a demo;
-- drop `updater/`, large fonts, dev assets;
-- **keep** `dist/` (compiled UI) and `3rdparty/` vendor runtime.
-
-If the trimmed MEMFS bundle is still too large, fall back to an OPFS-backed mount
-for the readonly core while the mutable data dir + SQLite stay in MEMFS/persisted.
+Current core extraction uses streaming tar.zst into MEMFS, not ZIP or NODEFS.
+Use [bundle design](../../../docs/streaming-tar-zst-core-bundle.md) and the current
+build trim list when changing size or contents. Keep compiled `dist/` and
+`3rdparty/` runtime code. Do not add OPFS automatically based on historical spike
+sizes; measure the current browser path first.
 
 ## Verification checklist
 
@@ -213,7 +180,7 @@ for the readonly core while the mutable data dir + SQLite stay in MEMFS/persiste
 - [ ] `status.php` (or `occ status`) reports installed with the right versionstring?
 - [ ] `/index.php/login` returns 200 with real login HTML?
 - [ ] posix polyfill active via `auto_prepend_file` before any request?
-- [ ] All 5 patches present and gated on `PHP_SAPI === 'wasm'`?
+- [ ] Build patches retain their CLI/web gates and failed-font fallback?
 - [ ] `filelocking.enabled => false`, `enabledPreviewProviders => []`, `check_data_directory_permissions => false`, no `memcache.local`?
 - [ ] `trusted_domains` and `overwrite.cli.url` match the deploy origin/subpath?
 - [ ] occ run via the shebang-free `console.php` wrapper with `REQUEST_URI` unset?

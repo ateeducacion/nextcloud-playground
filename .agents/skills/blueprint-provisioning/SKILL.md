@@ -1,147 +1,61 @@
 ---
 name: blueprint-provisioning
-description: Blueprint JSON provisioning expert for the Nextcloud playground. Use when working with blueprint parsing/normalization, step handlers, executing occ commands for Nextcloud provisioning (installNextcloud, login, createUser, createGroup, addUserToGroup, enableApp, disableApp, setConfig, writeFile, createShare, runOcc), resource resolution, and PHP/occ code generation. References src/shared/blueprint.js, assets/blueprints/, and the occ wrapper pattern from spike/run-spike.mjs.
+description: Implement or debug Nextcloud Playground blueprint normalization, step handlers, and occ provisioning. Not WordPress Blueprints.
 metadata:
   author: nextcloud-playground
   version: "1.0"
 ---
 
-# Blueprint Provisioning Expert (Nextcloud)
+# Nextcloud blueprint provisioning
 
-## Role
+## Current contract
 
-You are an expert in the Nextcloud Playground blueprint system — a declarative
-JSON format describing the desired state of a playground instance, applied at
-boot. You understand parsing/normalization, step handlers, **occ-based
-provisioning**, resource resolution, and how to generate PHP/occ code that runs
-correctly under the `wasm` SAPI.
+Read the relevant sections of [blueprint reference](../../../docs/blueprint-json.md)
+for JSON shapes and supported steps. The schema is
+`assets/blueprints/blueprint-schema.json`; normalization is in
+`src/shared/blueprint.js`; execution is in `src/runtime/blueprint-steps.js`.
+The Nextcloud normalizer is implemented, not a pending FacturaScripts migration.
 
-## Where the code lives
+- `admin` is preferred; legacy `login` credentials normalize into it.
+- Top-level `apps` expands into `enableApp` steps before the explicit `steps`.
+- `installNextcloud` is a declarative marker; bootstrap performs installation.
+- Keep schema, normalizer, handler, documentation, and affected tests aligned.
+- Query parameter precedence is defined by `resolveBlueprintForShell`; reuse it
+  instead of implementing a second URL/base64 parser.
 
-| File | Responsibility |
-|---|---|
-| `src/shared/blueprint.js` | Parse (`?blueprint=`, base64, data-URL, URL), normalize, build the default blueprint, sessionStorage persistence, resolve for the shell. |
-| `src/shared/config.js` | Merge blueprint over `playground.config.json` into the effective config. |
-| `assets/blueprints/default.blueprint.json` | Default blueprint loaded by `defaultBlueprintUrl`. |
-| `assets/blueprints/blueprint-schema.json` | JSON schema for the blueprint. |
-| `src/runtime/bootstrap.js` | Applies the blueprint during boot (mount core → occ install → config → steps → autologin). |
-| `src/runtime/addons.js` | Materializes blueprint-declared apps/plugins. |
+## PHP and occ
 
-> Migration note: the in-tree `blueprint.js` currently still carries the
-> FacturaScripts shape (`normalizeInstall`/`seed.customers` etc.). The
-> **target Nextcloud format** below is what the docs and step handlers describe;
-> keep `blueprint.js`, the schema, and `docs/blueprint-json.md` in sync as the
-> Nextcloud steps land.
+Use `buildOccScript` in `src/runtime/install-script.js`. It executes in-process:
+there is no shell or native occ subprocess. Build an argv array, safely encode
+values, pass passwords via env (`OC_PASS`), unset `REQUEST_URI`, change to
+`/www/nextcloud`, then require `console.php`. Requiring `occ` emits its shebang
+and breaks `strict_types`. The posix prepend must already be active.
 
-## Blueprint resolution order (`resolveBlueprintForShell`)
+The executor's `occ` helper checks exit status. Reuse existing error reporting;
+never concatenate untrusted input into PHP or shell syntax. `login` uses
+`php.request()` to capture session cookies; a successful explicit login suppresses
+later admin autologin. `createShare` uses the internal share manager rather than
+an invented occ command. User-file writes also need the existing files scan.
 
-1. `?blueprint=` — inline base64/JSON, or an `http(s)` URL (backward compat).
-2. `?blueprint-url=` — remote URL (primary, matches moodle-playground).
-3. `?blueprint-data=` — legacy alias for `?blueprint=` (deprecated).
-4. `config.defaultBlueprintUrl` (`./assets/blueprints/default.blueprint.json`).
-5. The built-in default blueprint.
+App ZIP handling and archive path validation live in the step executor and
+`install-script.js`, not a legacy FacturaScripts `addons.js` flow. Keep paths
+validated and preserve the existing proxy/resource handling for each step.
 
-Inline base64 accepts URL-safe alphabet and missing padding
-(`decodeBase64Text`). The result is always run through `normalizeBlueprint`.
+## Reload and failures
 
-## Target Nextcloud blueprint format
+`bootstrap.js` skips installation for matching installed state, but still invokes
+blueprint steps on reload. Steps must tolerate existing state where intended.
+Failures are logged and execution continues. A failed `installApp` sets
+`criticalFailure`; bootstrap does not mark a fresh install complete, so the next
+boot can retry. Do not add Moodle's `critical` option without changing the contract.
 
-```json
-{
-  "$schema": "./blueprint-schema.json",
-  "meta": { "title": "Demo", "author": "team", "description": "..." },
-  "debug": { "enabled": false },
-  "landingPage": "/index.php/apps/dashboard/",
-  "siteOptions": { "title": "Nextcloud Playground", "locale": "en", "timezone": "UTC" },
-  "login": { "username": "admin", "password": "admin" },
-  "steps": [
-    { "step": "installNextcloud", "adminUser": "admin", "adminPass": "admin" },
-    { "step": "setConfig", "key": "default_phone_region", "value": "ES" },
-    { "step": "createGroup", "gid": "teachers" },
-    { "step": "createUser", "uid": "alice", "password": "alice-pass", "displayName": "Alice" },
-    { "step": "addUserToGroup", "uid": "alice", "gid": "teachers" },
-    { "step": "enableApp", "appId": "activity" },
-    { "step": "disableApp", "appId": "firstrunwizard" },
-    { "step": "writeFile", "path": "/admin/files/welcome.md", "contents": "# Hi" },
-    { "step": "createShare", "path": "/welcome.md", "shareType": "public" },
-    { "step": "login", "username": "admin", "password": "admin" }
-  ]
-}
-```
+A changed blueprint source triggers a clean environment; reloading the same source
+reuses the journal. See `src/shared/paths.js` and `src/shell/main.js`.
 
-## Step types → occ mapping
+## Verification
 
-Every provisioning step ultimately runs through the **occ wrapper** (shebang-free
-script that sets `$_SERVER['argv']`, unsets `REQUEST_URI`, requires
-`console.php`) — except web steps like `login`, `writeFile`, and HTTP requests.
-
-| Step | occ / mechanism | Notes |
-|---|---|---|
-| `installNextcloud` | (no-op after bootstrap) | Idempotent marker — the real install runs once in bootstrap; the step is recognized so documented blueprints do not warn. |
-| `login` | `UserSession::login` via `php.request()` | Same helper as autologin. Plants a session cookie in the jar. A successful login step skips the later admin autologin. |
-| `createUser` | `OC_PASS=<pass> occ user:add --password-from-env --display-name "<name>" <uid>` | Password via env (no interactive prompt). |
-| `createGroup` | `occ group:add <gid>` | |
-| `addUserToGroup` | `occ group:adduser <gid> <uid>` | Group and user must exist first. |
-| `enableApp` | `occ app:enable <appId>` | App must be present in the trimmed bundle. |
-| `disableApp` | `occ app:disable <appId>` | E.g. disable `firstrunwizard`. |
-| `setConfig` | `occ config:system:set <key> [<subkey>...] --value <v> [--type bool\|integer\|json]` | For `config.php` keys; coerce types explicitly. |
-| `writeFile` | MEMFS write; `occ files:scan <uid>` for user files | `/<uid>/files/...` maps into the data dir. Other paths are relative to the Nextcloud root. |
-| `createShare` | `OCP\Share\IManager` (no stock occ command) | Public link / user / group share for an existing, scanned path. Same engine as `POST /ocs/v2.php/apps/files_sharing/api/v1/shares`. |
-| `runOcc` | Arbitrary `occ <args...>` | Escape hatch for commands without a dedicated step. |
-
-### occ generation rules
-
-- Build the argv array, JSON-encode it into the wrapper, never string-concat
-  shell. There is **no shell** — occ runs in-process.
-- Pass secrets via env (`OC_PASS`), not argv where avoidable.
-- `chdir(NEXTCLOUD_ROOT)` and `require .../console.php` exactly as the spike does.
-- Always `unset($_SERVER['REQUEST_URI'])` so patched `base.php` sees CLI.
-- Check `exitCode === 0`; surface `stdout`/`stderr` on failure.
-
-## Normalization (current `blueprint.js`)
-
-`normalizeBlueprint(input, config)` always returns a fully-formed object with
-defaults from `buildDefaultBlueprint(config)`:
-
-- `$schema`, `meta.{title,author,description}`
-- `debug.enabled` (strict `=== true`)
-- `landingPage` normalized to start with `/` (accepts `landingPath` alias)
-- `siteOptions.{title,locale,timezone}`
-- `login.{username,password}`
-- `settings` — `{ group: { key: value } }`, scalars coerced to strings,
-  booleans → `"1"`/`"0"`, non-object groups / nested objects / arrays / null
-  dropped (`normalizeSettings`).
-
-`buildEffectivePlaygroundConfig` projects the blueprint onto the runtime config
-(siteTitle, locale, timezone, landingPath, debug, admin credentials). The Nextcloud
-step list (`steps[]`) is the additive piece to wire in as the runtime migrates
-from the FacturaScripts shape.
-
-## Resources
-
-Steps that need file content (e.g. `writeFile`, `createShare` targets, app ZIPs)
-resolve through named resources — typical types: `url` (fetched at boot, via the
-addon/CORS proxy for CORS-safe ZIP downloads), `base64`, `literal`. URLs are
-absolutized against `window.location` (`absolutizeUrl`). App/plugin installs from
-remote ZIPs go through `src/runtime/addons.js` and the proxy
-(`addonProxyUrl` / `phpCorsProxyUrl`).
-
-## Execution & error handling
-
-- Steps run **sequentially** in array order during `bootstrapNextcloud`.
-- Install is gated by persisted state (`manifestVersion`): if the persisted DB
-  matches the current bundle and `clean` is false, the install/setup steps are
-  skipped and only lightweight steps re-run.
-- Prefer non-fatal step failures (log + continue) unless a step is essential
-  (install). Report a progress message per step via `publish(message, fraction)`.
-
-## Checklist for blueprint changes
-
-- [ ] New step registered in the executor and documented in `docs/blueprint-json.md`?
-- [ ] Step added to `assets/blueprints/blueprint-schema.json`?
-- [ ] occ steps run via the wrapper with `REQUEST_URI` unset and `exitCode` checked?
-- [ ] Secrets passed via env (`OC_PASS`), not argv?
-- [ ] Strings safely embedded (JSON-encoded into the wrapper, not shell-quoted)?
-- [ ] Works with SQLite and the trimmed bundle (target app actually present)?
-- [ ] Unit test added under `tests/*.test.mjs`?
-- [ ] Install idempotency / version-skip path still correct?
+Use the nearest cases in `tests/blueprint.test.mjs` and
+`tests/blueprint-steps.test.mjs` for normalization, safe argv generation, failures,
+and aliases. Run affected unit tests. Rebuild with `npm run build-worker` before
+browser verification and clear Service Worker caches; tests importing source do
+not detect stale worker bundles. Assert actual Nextcloud content for provisioning.
