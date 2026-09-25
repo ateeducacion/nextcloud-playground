@@ -5,8 +5,8 @@ let configPromise;
 export async function loadPlaygroundConfig() {
   if (!configPromise) {
     const configUrl = resolveProjectUrl("playground.config.json");
-    configPromise = fetch(configUrl, { cache: "no-store" }).then(
-      async (response) => {
+    configPromise = fetch(configUrl, { cache: "no-store" })
+      .then(async (response) => {
         if (!response.ok) {
           throw new Error(
             `Unable to load playground config: ${response.status}`,
@@ -14,8 +14,12 @@ export async function loadPlaygroundConfig() {
         }
 
         return response.json();
-      },
-    );
+      })
+      .catch((error) => {
+        // Do not memoize a failure: let the next caller retry the fetch.
+        configPromise = undefined;
+        throw error;
+      });
   }
 
   return configPromise;
