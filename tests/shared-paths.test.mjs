@@ -6,7 +6,6 @@ import {
   hasBlueprintUrlOverride,
   joinBasePath,
   resolveAppUrl,
-  resolveConfiguredProxyUrl,
 } from "../src/shared/paths.js";
 
 function withWindow(windowLike, fn) {
@@ -50,28 +49,6 @@ describe("shared path helpers", () => {
       resolved.toString(),
       "https://example.com/playground/dashboard",
     );
-  });
-
-  it("resolves configured proxy urls on localhost", () => {
-    const current = new URL("http://localhost:8085/playground/index.html");
-    const resolved = resolveConfiguredProxyUrl(
-      { proxyPath: "/proxy" },
-      current,
-    );
-
-    assert.ok(resolved);
-    assert.equal(resolved.toString(), "http://localhost:8085/playground/proxy");
-  });
-
-  it("prefers explicit proxy urls when present", () => {
-    const current = new URL("https://example.com/playground/index.html");
-    const resolved = resolveConfiguredProxyUrl(
-      { proxyUrl: "https://proxy.example.com/service" },
-      current,
-    );
-
-    assert.ok(resolved);
-    assert.equal(resolved.toString(), "https://proxy.example.com/service");
   });
 
   it("detects blueprint overrides in the query string", () => {

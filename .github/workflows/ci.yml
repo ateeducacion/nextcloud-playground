@@ -45,7 +45,6 @@ jobs:
           node --check src/runtime/crash-recovery.js
           node --check src/runtime/fs-persistence.js
           node --check src/runtime/manifest.js
-          node --check src/runtime/networking.js
           node --check src/runtime/php-compat.js
           node --check src/runtime/php-loader.js
           node --check src/runtime/vfs.js
