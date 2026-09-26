@@ -10,7 +10,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 concurrency:
   group: cloudflare-pages-cleanup-${{ github.event.pull_request.head.ref || github.ref_name }}
@@ -19,6 +18,9 @@ concurrency:
 jobs:
   cleanup:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write # remove the preview comment on close
     env:
       HAS_CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
     steps:
