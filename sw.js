@@ -533,8 +533,22 @@ function forwardToPhpWorker({ serializedRequest, runtimeId, scopeId }) {
   });
 }
 
+// Only the remote host page may reconfigure the worker. Nextcloud pages and any
+// HTML they render (e.g. files served from the app) share this origin, so
+// without this check they could reroute addon downloads through their own proxy.
+function isRemoteHostClient(source) {
+  try {
+    return stripAppBasePath(new URL(source?.url).pathname) === "/remote.html";
+  } catch {
+    return false;
+  }
+}
+
 self.addEventListener("message", (event) => {
   if (event.data?.kind === "configure-service-worker") {
+    if (!isRemoteHostClient(event.source)) {
+      return;
+    }
     addonProxyUrlOverride = event.data.addonProxyUrl || null;
     if (event.data.sandboxedIframeCompatibility && event.data.scopeId) {
       sandboxedIframeCompatibilityScopes.add(event.data.scopeId);
