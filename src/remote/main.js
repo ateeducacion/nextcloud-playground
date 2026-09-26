@@ -67,7 +67,7 @@ function monitoringHintFor(error) {
   return null;
 }
 
-async function registerRuntimeServiceWorker(scopeId, runtimeId, config) {
+async function registerRuntimeServiceWorker(scopeId, runtimeId) {
   if (!isServiceWorkerSupported()) {
     throw createServiceWorkerUnsupportedError();
   }
@@ -270,7 +270,7 @@ async function bootstrapRemote() {
     progress: 0.08,
   });
 
-  await registerRuntimeServiceWorker(scopeId, runtime.id, config);
+  await registerRuntimeServiceWorker(scopeId, runtime.id);
   await waitForServiceWorkerControl();
   setRemoteProgress("Service Worker ready and controlling this tab.", 0.12);
 

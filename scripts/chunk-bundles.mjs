@@ -129,7 +129,7 @@ try {
     const manifest = JSON.parse(readFileSync(manifestFile, "utf8"));
     const bundle = manifest.bundle;
     // Skip manifests without a single-file bundle or already-chunked ones.
-    if (!bundle || !bundle.path || Array.isArray(bundle.parts)) continue;
+    if (!bundle?.path || Array.isArray(bundle.parts)) continue;
 
     const fileAbs = resolve(dirname(manifestFile), bundle.path);
     const size = fileSize(fileAbs);
@@ -156,7 +156,7 @@ try {
     delete newBundle.path;
     manifest.bundle = newBundle;
 
-    writeFileSync(manifestFile, JSON.stringify(manifest, null, 2) + "\n");
+    writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
     filesToDelete.add(fileAbs);
     rewritten.push({
       manifest: basename(manifestFile),
