@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync, rmSync } from "node:fs";
+import { readdirSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -79,6 +79,27 @@ const phpWasmIcuDataPlugin = {
   },
 };
 
+// Since 3.1.57 the @php-wasm/web-X-Y loaders reference their .wasm through
+// `new URL("./x.wasm", import.meta.url)`, which esbuild leaves untouched, so the
+// binary never reaches dist/ and the worker fetches a 404. Turn it back into an
+// import so the ".wasm" file loader below emits it.
+const phpWasmUrlToImport = {
+  name: "php-wasm-url-to-import",
+  setup(b) {
+    b.onLoad(
+      { filter: /@php-wasm[\\/]web-\d-\d[\\/].*php_\d_\d\.js$/ },
+      (args) => ({
+        loader: "js",
+        resolveDir: dirname(args.path),
+        contents: readFileSync(args.path, "utf8").replace(
+          /const dependencyFilename = new URL\((['"][^'"]+\.wasm['"]), import\.meta\.url\)\s*\.href;?/,
+          "import dependencyFilename from $1;",
+        ),
+      }),
+    );
+  },
+};
+
 rmSync(resolvePath(repoDir, "dist"), { force: true, recursive: true });
 
 await build({
@@ -94,7 +115,7 @@ await build({
   banner: {
     js: `const __APP_ROOT__ = new URL("../", import.meta.url).href;`,
   },
-  plugins: [phpWasmIcuDataPlugin, stripUnusedPhpVersions],
+  plugins: [phpWasmIcuDataPlugin, stripUnusedPhpVersions, phpWasmUrlToImport],
   loader: {
     ".wasm": "file",
     ".so": "file",
@@ -125,6 +146,22 @@ await build({
     "process.env.NODE_ENV": '"production"',
   },
 });
+
+// Fail the build instead of shipping a worker that 404s on its PHP binary
+// (e.g. if a php-wasm update changes how the loaders reference the .wasm and
+// phpWasmUrlToImport stops matching).
+const emitted = readdirSync(resolvePath(repoDir, "dist"));
+const missingWasm = keepVersions.filter(
+  (v) =>
+    !emitted.some(
+      (f) => f.startsWith(`php_${v.replace("-", "_")}-`) && f.endsWith(".wasm"),
+    ),
+);
+if (missingWasm.length > 0) {
+  throw new Error(
+    `No .wasm emitted for PHP ${missingWasm.join(", ")}; check phpWasmUrlToImport against the installed @php-wasm/web-* loaders`,
+  );
+}
 
 // The cache version lives in src/generated/build-version.js, written by
 // scripts/write-build-version.mjs (`npm run build:version`). It used to be a
