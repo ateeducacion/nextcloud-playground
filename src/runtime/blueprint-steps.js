@@ -16,13 +16,36 @@ import {
   stepGroupId,
   stepUsername,
 } from "./blueprint-step-utils.js";
-import { NEXTCLOUD_ROOT } from "./bootstrap-paths.js";
+import { isMutablePath, NEXTCLOUD_ROOT } from "./bootstrap-paths.js";
 import {
   buildOccScript,
   buildUnzipScript,
   buildZipExtractScript,
 } from "./install-script.js";
 import { buildCreateShareScript } from "./share-script.js";
+
+/**
+ * On a reload the journal already holds every earlier step's effect on the DB,
+ * config and data dir; repeating them would duplicate shares, overwrite the
+ * user's files and revert settings. Repeat only what each boot rebuilds: the
+ * session and code/files outside the journal (re-downloaded; nothing new is
+ * stored, since playgrounds are short-lived).
+ */
+export function runsOnReload(step) {
+  const name = step?.step || step?.type;
+  if (name === "login" || name === "installApp") return true;
+  if (name === "writeFile") {
+    const { target } = resolveWriteFileTarget(String(step.path || "").trim());
+    return !isMutablePath(target);
+  }
+  if (name === "unzip") {
+    const raw = String(step.destination || step.path || "").trim();
+    return !isMutablePath(
+      raw.startsWith("/") ? raw : `${NEXTCLOUD_ROOT}/${raw}`,
+    );
+  }
+  return false;
+}
 
 /**
  * Idempotent `mkdir -p` against the PHP VFS (mirrors bootstrap's ensureDir).
@@ -104,8 +127,15 @@ function reRootEntriesToApp(entries) {
  *
  * Each step is best-effort: a failing step is reported via publish() but does
  * not abort the boot (the playground should still come up).
+ *
+ * `reload` is set when bootstrap reused a persisted install: see runsOnReload.
  */
-export async function executeBlueprintSteps({ php, blueprint, publish }) {
+export async function executeBlueprintSteps({
+  php,
+  blueprint,
+  publish,
+  reload = false,
+}) {
   const steps = Array.isArray(blueprint?.steps) ? blueprint.steps : [];
   if (steps.length === 0) {
     return { executed: 0 };
@@ -130,6 +160,13 @@ export async function executeBlueprintSteps({ php, blueprint, publish }) {
     const step = steps[i] || {};
     const name = step.step || step.type;
     const ratio = 0.78 + (i / steps.length) * 0.07;
+    if (reload && !runsOnReload(step)) {
+      publish(
+        `Skipping ${name} on reload: its result is already saved.`,
+        ratio,
+      );
+      continue;
+    }
     try {
       switch (name) {
         case "installNextcloud":

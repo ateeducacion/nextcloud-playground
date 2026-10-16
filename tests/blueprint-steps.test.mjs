@@ -9,7 +9,10 @@ import {
   stepGroupId,
   stepUsername,
 } from "../src/runtime/blueprint-step-utils.js";
-import { executeBlueprintSteps } from "../src/runtime/blueprint-steps.js";
+import {
+  executeBlueprintSteps,
+  runsOnReload,
+} from "../src/runtime/blueprint-steps.js";
 import {
   NEXTCLOUD_DATA_DIR,
   NEXTCLOUD_ROOT,
@@ -359,5 +362,61 @@ describe("executeBlueprintSteps", () => {
     assert.ok(
       warnings.some((m) => /createShare/.test(m) && /file not found/.test(m)),
     );
+  });
+});
+
+describe("blueprint steps on a reload of a persisted install", () => {
+  it("repeats only the session and code/files outside the journal", () => {
+    for (const step of [
+      { step: "login", username: "admin" },
+      { step: "installApp", appId: "exelearning", url: "https://x/app.tar.gz" },
+      { step: "writeFile", path: "themes/custom/style.css", content: "a" },
+      {
+        step: "unzip",
+        destination: "apps/exelearning/dist",
+        url: "https://x/e.zip",
+      },
+    ]) {
+      assert.equal(runsOnReload(step), true, step.step);
+    }
+    for (const step of [
+      { step: "createUser", username: "alice" },
+      { step: "createGroup", gid: "teachers" },
+      { step: "addUserToGroup", username: "alice", group: "teachers" },
+      { step: "createShare", path: "/welcome.md", shareType: "public" },
+      { step: "setConfig", key: "x", value: "y" },
+      { step: "enableApp", appId: "files" },
+      { step: "runOcc", args: ["status"] },
+      { step: "writeFile", path: "admin/files/notes.md", content: "a" },
+      {
+        step: "unzip",
+        destination: `${NEXTCLOUD_DATA_DIR}/admin/files/x`,
+        url: "u",
+      },
+    ]) {
+      assert.equal(runsOnReload(step), false, step.step);
+    }
+  });
+
+  it("does not duplicate shares or overwrite user files when reloading", async () => {
+    const php = mockPhp({ requestOut: { ok: true, uid: "admin" } });
+    const result = await executeBlueprintSteps({
+      php,
+      blueprint: {
+        admin: { username: "admin" },
+        steps: [
+          { step: "createGroup", gid: "teachers" },
+          { step: "createShare", path: "/welcome.md", shareType: "public" },
+          { step: "writeFile", path: "admin/files/notes.md", content: "seed" },
+          { step: "login", username: "admin", password: "admin" },
+        ],
+      },
+      publish() {},
+      reload: true,
+    });
+    assert.equal(result.executed, 1);
+    assert.equal(result.loggedInUser, "admin");
+    assert.equal(php.runs.length, 0);
+    assert.ok(!php.files.some((f) => String(f.path).includes("notes.md")));
   });
 });

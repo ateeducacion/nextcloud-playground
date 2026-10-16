@@ -58,9 +58,11 @@ Generated output is under `assets/nextcloud/`, `assets/manifests/`, and `dist/`.
   `/persist` alone. See `bootstrap-paths.js` and `fs-persistence.js`.
 - `nextcloud-opcache:<phpVersion>` separately persists OPcache. Clean boot clears
   both journals. This is Nextcloud's current key, not FacturaScripts' bundle-hash key.
-- Install reuse depends on installed config and matching manifest state. Blueprint
-  steps still execute on reload; failed `installApp` steps prevent caching a fresh
-  install as complete. Preserve that retry behavior in `bootstrap.js`.
+- Install reuse depends on installed config and matching manifest state. On a
+  reused install, blueprint steps run only for the session and volatile code
+  (`login`, `installApp`, `writeFile`/`unzip` outside the journal; see
+  `runsOnReload`). Failed `installApp` steps prevent caching a fresh install as
+  complete. Preserve that retry behavior in `bootstrap.js`.
 - Blueprint normalization is already Nextcloud-specific (`admin`, `apps`, `steps`),
   not a pending FacturaScripts migration. Keep [blueprint docs](docs/blueprint-json.md),
   schema, `src/shared/blueprint.js`, and `src/runtime/blueprint-steps.js` aligned.

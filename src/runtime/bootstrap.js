@@ -205,7 +205,14 @@ export async function bootstrapNextcloud({
   let blueprintResult = { executed: 0, criticalFailure: false };
   if (blueprint.steps.length > 0) {
     publish("Applying blueprint steps.", 0.78);
-    blueprintResult = await executeBlueprintSteps({ php, blueprint, publish });
+    // A reused install already ran these steps to completion (the marker is
+    // written only after them), so a reload repeats only session/volatile ones.
+    blueprintResult = await executeBlueprintSteps({
+      php,
+      blueprint,
+      publish,
+      reload: skipInstall,
+    });
   }
 
   if (!skipInstall) {
