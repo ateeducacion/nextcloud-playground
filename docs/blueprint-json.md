@@ -97,6 +97,13 @@ mode for trusted app code.
 Steps run sequentially in array order. Each maps to an `occ` command or a web
 request.
 
+On a reload of the same tab the saved database, config and data are reused, so
+steps whose result is already saved are skipped: users, groups, shares,
+settings, `enableApp`/`disableApp`, `runOcc` and files written to user folders.
+Only `login`, `installApp` (app code is not saved and is downloaded again) and
+`writeFile`/`unzip` outside `config/` and `data/` run again. A different blueprint
+source or Reset Playground starts from a clean install that runs every step.
+
 Field aliases accepted on every step (so both the documented names and the
 runtime names work): `uid`/`username`/`owner`, `gid`/`group`, `appId`/`app`,
 `contents`/`content`.

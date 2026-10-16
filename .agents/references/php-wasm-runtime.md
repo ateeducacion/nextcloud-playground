@@ -36,8 +36,9 @@ outside installed skill directories; read the section needed for the task.
   fs-persistence.js. Do not restrict journaling to /persist or add Moodle exclusions.
 - OPcache uses `nextcloud-opcache:<phpVersion>`, unlike FacturaScripts' bundle-hash
   namespace. Clean boot clears both journals and initializes them again.
-- Installation is reused for matching installed config and manifest state, but
-  blueprint steps still run on reload. Failed installApp prevents caching a fresh
+- Installation is reused for matching installed config and manifest state; on
+  reload only session/volatile blueprint steps run (`runsOnReload` in
+  `blueprint-steps.js`). Failed installApp prevents caching a fresh
   install as complete. See [blueprint skill](../skills/blueprint-provisioning/SKILL.md).
 - Read `php-worker.js` and `src/runtime/crash-recovery.js` for actual checkpoint
   coverage, bounded copying, fallback, and restart guards. Preserve coherent DB/

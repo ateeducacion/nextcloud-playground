@@ -5,7 +5,7 @@ import {
   replayFSJournal,
 } from "@php-wasm/fs-journal";
 import { __private__dont__use } from "@php-wasm/universal";
-import { NEXTCLOUD_CONFIG_DIR, NEXTCLOUD_DATA_DIR } from "./bootstrap-paths.js";
+import { MUTABLE_PATH_PREFIXES } from "./bootstrap-paths.js";
 
 const PERSIST_DB_PREFIX = "nextcloud-fs-journal";
 const OPCACHE_DB_PREFIX = "nextcloud-opcache";
@@ -13,11 +13,6 @@ const DB_VERSION = 1;
 const STORE_NAME = "ops";
 const FLUSH_DELAY_MS = 1500;
 export const SQLITE_TEMP_FILE_RE = /\.(sqlite-journal|sqlite-wal|sqlite-shm)$/u;
-const MUTABLE_PATH_PREFIXES = [
-  "/persist",
-  NEXTCLOUD_CONFIG_DIR,
-  NEXTCLOUD_DATA_DIR,
-];
 
 function isPathUnderPrefix(path, pathPrefix) {
   // An empty pathPrefix means "flush everything" for callers like flushNow()

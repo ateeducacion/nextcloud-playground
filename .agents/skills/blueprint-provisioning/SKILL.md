@@ -43,8 +43,12 @@ validated and preserve the existing proxy/resource handling for each step.
 
 ## Reload and failures
 
-`bootstrap.js` skips installation for matching installed state, but still invokes
-blueprint steps on reload. Steps must tolerate existing state where intended.
+`bootstrap.js` skips installation for matching installed state and then passes
+`reload: true`: only `login`, `installApp` (apps/ is not journaled) and
+`writeFile`/`unzip` targets outside the journal run again (`runsOnReload`). The
+persisted DB/config/data already hold the rest; repeating it would duplicate
+shares, overwrite user files and revert settings. Nothing extra is persisted for
+this: playgrounds are short-lived, so volatile code is simply re-downloaded.
 Failures are logged and execution continues. A failed `installApp` sets
 `criticalFailure`; bootstrap does not mark a fresh install complete, so the next
 boot can retry. Do not add Moodle's `critical` option without changing the contract.
