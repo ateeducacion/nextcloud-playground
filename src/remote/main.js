@@ -249,6 +249,8 @@ async function bootstrapRemote() {
   const requestedRuntimeId = url.searchParams.get("runtime");
   const requestedPath = url.searchParams.get("path") || "/";
   forceCleanBoot = url.searchParams.get("clean") === "1";
+  // Forwarded verbatim to the worker, which decides (isOpcacheEnabled).
+  const opcacheParam = url.searchParams.get("opcache");
   _activeScopeId = scopeId;
   _activeRuntimeId = requestedRuntimeId;
   activePath = requestedPath;
@@ -300,6 +302,9 @@ async function bootstrapRemote() {
     workerUrl.searchParams.set("v", BUILD_VERSION);
     workerUrl.searchParams.set("scope", scopeId);
     workerUrl.searchParams.set("runtime", runtime.id);
+    if (opcacheParam !== null) {
+      workerUrl.searchParams.set("opcache", opcacheParam);
+    }
     phpWorker = new Worker(workerUrl, { type: "module" });
     phpWorker.addEventListener("error", (event) => {
       const detail =

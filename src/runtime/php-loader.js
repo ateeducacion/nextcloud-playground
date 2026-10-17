@@ -28,6 +28,16 @@ let cachedTcpOverFetchCaPromise = null;
 const OPCACHE_BLACKLIST_PATH = "/internal/shared/opcache-blacklist.txt";
 const OPCACHE_BLACKLIST = "/internal/eval.php\n";
 
+// php-src <= 8.4 starts OPcache only for whitelisted SAPI names (apache,
+// fastcgi, cli-server, cgi-fcgi, fpm-fcgi, fpmi-fcgi, apache2handler, litespeed,
+// uwsgi, fuzzer, frankenphp, ngx-php); php-wasm reports `wasm`. With the
+// experimental `opcache` option the runtime reports `uwsgi`: Nextcloud 33 has
+// no reference to it, while the cgi*/fpm names take different code paths. The
+// bundle patches in scripts/build-nextcloud-bundle.sh accept this name next to
+// `wasm`; keep both in sync. Same decision as moodle-playground ADR-0039:
+// https://github.com/ateeducacion/moodle-playground/blob/main/docs/architecture/adr/ADR-0039-experimental-opcache-via-sapi-name.md
+const OPCACHE_SAPI_NAME = "uwsgi";
+
 function buildPhpIniEntries() {
   return {
     memory_limit: "256M",
@@ -80,6 +90,7 @@ export const __testing = {
   writeOpcacheBlacklist,
   OPCACHE_BLACKLIST_PATH,
   OPCACHE_BLACKLIST,
+  OPCACHE_SAPI_NAME,
 };
 
 async function getTcpOverFetchOptions(corsProxyUrl) {
@@ -109,6 +120,7 @@ export function createPhpRuntime(
     forceCleanBoot,
     corsProxyUrl,
     phpCorsProxyUrl,
+    opcache = false,
   } = {},
 ) {
   const resolvedPhpVersion = phpVersion || DEFAULT_PHP_VERSION;
@@ -132,6 +144,12 @@ export function createPhpRuntime(
       const php = new PHP(runtimeId);
       const FS = php[__private__dont__use].FS;
       persistenceController = null;
+
+      if (opcache) {
+        // Must precede the first request; php-wasm re-applies the name on a
+        // runtime hot-swap. See docs/KNOWN-ISSUES.md#opcache.
+        await php.setSapiName(OPCACHE_SAPI_NAME);
+      }
 
       // Nextcloud shells out (BinaryFinder, previews, setup checks). Without a
       // spawn handler php-wasm throws an uncatchable error that aborts the

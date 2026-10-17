@@ -1,4 +1,7 @@
-import { loadPlaygroundConfig } from "./src/shared/config.js";
+import {
+  isOpcacheEnabled,
+  loadPlaygroundConfig,
+} from "./src/shared/config.js";
 import {
   createPhpBridgeChannel,
   createShellChannel,
@@ -22,6 +25,7 @@ import {
 const workerUrl = new URL(self.location.href);
 const scopeId = workerUrl.searchParams.get("scope");
 const runtimeId = workerUrl.searchParams.get("runtime");
+const opcacheParam = workerUrl.searchParams.get("opcache");
 
 let bridgeChannel = null;
 let runtimeStatePromise = null;
@@ -148,6 +152,7 @@ async function getRuntimeState() {
       scopeId,
       forceCleanBoot,
       phpCorsProxyUrl: config.phpCorsProxyUrl || null,
+      opcache: isOpcacheEnabled(opcacheParam, config),
     });
 
     // Monotonic progress: the parallel core download and the bootstrap steps

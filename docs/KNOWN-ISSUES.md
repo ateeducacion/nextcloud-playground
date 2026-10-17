@@ -89,10 +89,62 @@ To fit the browser, heavy optional shipped apps are removed from the bundle
 
 ## Other absent extensions / capabilities
 
-Absent: `pcntl`, `gmp`, `sodium`, `ftp`, `imap`, `ldap`, opcache off by default
-(the playground enables a file-cache OPcache). `proc_open`/`exec`/`shell_exec`
+Absent: `pcntl`, `gmp`, `sodium`, `ftp`, `imap`, `ldap`. OPcache is configured
+but inert unless the experimental flag below is on. `proc_open`/`exec`/`shell_exec`
 exist as functions but cannot spawn processes. Anything depending on those
 (external auth backends, shell integrations) won't work.
+
+## OPcache
+
+`src/runtime/php-loader.js` configures OPcache's **file cache**
+(`opcache.file_cache_only=1`, bytecode under `/internal/shared/opcache`). Two
+PHP-side facts shape what that means:
+
+- **PHP 8.3/8.4 never start OPcache under php-wasm's `wasm` SAPI** (php-src
+  only accepts a fixed list of SAPI names). `opcache_get_status()` returns
+  `false` and nothing is cached. PHP 8.5 removed that whitelist, so the cache
+  would run for real there (not offered by this playground today).
+- In file-cache-only mode `opcache_reset()` and `opcache_invalidate()` are
+  **no-ops**. The only invalidation is the script's mtime, compared in whole
+  seconds (`opcache.validate_timestamps=1`, `revalidate_freq=0`; PHP's default
+  2 s `file_update_protection` keeps a freshly written file out of the cache).
+  Never set `validate_timestamps=0` here: files do change within a session
+  (app install, `writeFile`/`unzip` steps) and would keep executing old
+  bytecode. `/internal/eval.php`, the single path every `php.run({ code })`
+  compiles, is blacklisted so snippets are never cached.
+
+**Experimental: `?opcache=1`** (or `"opcache": true` in `playground.config.json`;
+`?opcache=0` turns it off) makes the runtime report the `uwsgi` SAPI name before
+the first request, which is on PHP's whitelist, so the file cache starts on
+PHP 8.3. Consequences:
+
+- `PHP_SAPI`/`php_sapi_name()` return `uwsgi` inside Nextcloud. The audit of
+  the shipped Nextcloud 33 core found no branch on that name; the only
+  SAPI-dependent code paths are `cli`/`phpdbg` (Composer autoloaders,
+  `Server.php`, Snowflake, `updater/`), `cli-server` (`Setup.php`,
+  `Log/File.php`) and the playground's own `wasm` patches (`lib/base.php` occ
+  detection, `Config.php` flock bypass, `console.php` owner check), which
+  `scripts/build-nextcloud-bundle.sh` now gates on `wasm` **or** `uwsgi`.
+  The flag therefore needs a core bundle built from that script version:
+  with an older bundle `occ` is not recognised as CLI and the install fails.
+- Memory: the cached `.bin` files live in MEMFS (tens of MB for Nextcloud) and
+  WASM linear memory grows accordingly. Moodle Playground measured +32…71 MiB
+  for −33 % cold start and 58 → 17 ms PHP per request; Nextcloud has not been
+  measured yet, which is why the default stays off.
+- Persistence: `fs-persistence.js` journals `/internal/shared/opcache` to the
+  IndexedDB store `nextcloud-opcache:<phpVersion>`. The core is re-extracted
+  into MEMFS on every boot with fresh mtimes, so restored bytecode never passes
+  timestamp validation and is recompiled; with the flag on, that journal costs
+  IndexedDB writes without a cross-session benefit. Keeping or dropping it is a
+  separate decision.
+- A rewrite that restores a file's previous mtime to the second is the known
+  blind spot of timestamp validation; no playground write path does that.
+
+Same decisions as Moodle Playground
+[ADR-0038](https://github.com/ateeducacion/moodle-playground/blob/main/docs/architecture/adr/ADR-0038-opcache-file-cache-timestamp-validation.md)
+and
+[ADR-0039](https://github.com/ateeducacion/moodle-playground/blob/main/docs/architecture/adr/ADR-0039-experimental-opcache-via-sapi-name.md);
+upstream discussion in WordPress/wordpress-playground#4465.
 
 ## Harmless boot noise
 

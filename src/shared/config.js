@@ -25,6 +25,16 @@ export async function loadPlaygroundConfig() {
   return configPromise;
 }
 
+// Experimental OPcache flag: `?opcache=1|0` overrides playground.config.json's
+// "opcache" (default false). Single decision point for the worker; the shell
+// and remote host only forward the raw parameter. See docs/KNOWN-ISSUES.md#opcache.
+export function isOpcacheEnabled(param, config = {}) {
+  if (param !== null && param !== undefined && param !== "") {
+    return !["0", "false", "off", "no"].includes(String(param).toLowerCase());
+  }
+  return config.opcache === true;
+}
+
 export function getDefaultRuntime(config) {
   return (
     config.runtimes.find((runtime) => runtime.default) || config.runtimes[0]
