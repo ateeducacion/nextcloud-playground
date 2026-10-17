@@ -35,6 +35,15 @@ export function isOpcacheEnabled(param, config = {}) {
   return config.opcache === true;
 }
 
+// URL `opcache` value that makes isOpcacheEnabled() return `enabled` against
+// this config: null when the config default already does (keeps the URL clean).
+export function opcacheUrlParam(enabled, config = {}) {
+  if (enabled === (config.opcache === true)) {
+    return null;
+  }
+  return enabled ? "1" : "0";
+}
+
 export function getDefaultRuntime(config) {
   return (
     config.runtimes.find((runtime) => runtime.default) || config.runtimes[0]

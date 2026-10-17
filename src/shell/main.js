@@ -7,7 +7,12 @@ import {
   parseImportedBlueprintPayload,
   resolveBlueprintForShell,
 } from "../shared/blueprint.js";
-import { getDefaultRuntime, loadPlaygroundConfig } from "../shared/config.js";
+import {
+  getDefaultRuntime,
+  isOpcacheEnabled,
+  loadPlaygroundConfig,
+  opcacheUrlParam,
+} from "../shared/config.js";
 import {
   captureException,
   captureMessage,
@@ -61,8 +66,10 @@ const els = {
   refresh: document.querySelector("#refresh-button"),
   reset: document.querySelector("#reset-button"),
   infoRuntimeVersion: document.querySelector("#info-runtime-version"),
+  infoOpcache: document.querySelector("#info-opcache"),
   configStatus: document.querySelector("#config-status"),
   configWarning: document.querySelector("#config-warning"),
+  configReloadNote: document.querySelector("#config-reload-note"),
   configApply: document.querySelector("#config-apply"),
   runtimeIdChip: document.querySelector("#runtime-id-chip"),
   runtimeIdValue: document.querySelector("#runtime-id-value"),
@@ -102,6 +109,7 @@ let remoteFrameBooted = false;
 let uiLocked = true;
 let remoteReloadToken = 0;
 let pendingCleanBoot = false;
+let pendingPersistenceFlush = null;
 let latestPhpInfoHtml = "";
 const CONTROL_RELOAD_KEY = `nextcloud-playground:${scopeId}:sw-controlled`;
 
@@ -551,6 +559,11 @@ function bindShellChannel() {
         setPhpInfoContent(message.html || "");
         appendLog(message.detail || "Captured PHP runtime diagnostics.");
         break;
+      case "persistence-flushed":
+        appendLog(message.detail || "Persistence journal flushed.");
+        pendingPersistenceFlush?.();
+        pendingPersistenceFlush = null;
+        break;
       case "trace":
         appendLog(message.detail || "[trace]");
         break;
@@ -585,17 +598,36 @@ function populateConfigSelects() {
     els.infoRuntimeVersion.append(option);
   }
   els.infoRuntimeVersion.value = currentRuntimeId;
+  if (els.infoOpcache) {
+    els.infoOpcache.checked = currentOpcacheEnabled();
+  }
+}
+
+// The worker decides from the shell URL's ?opcache= (updateFrame forwards it)
+// and playground.config.json; mirror that decision for the checkbox.
+function currentOpcacheEnabled() {
+  return isOpcacheEnabled(
+    new URL(window.location.href).searchParams.get("opcache"),
+    config,
+  );
 }
 
 // Reflect the applied runtime in the Info panel: when the selected runtime
 // differs from what is actually running the config is "dirty". Switching the
 // runtime is destructive (it resets the site), so the Apply button stays inert
-// and the warning stays hidden until the selection actually differs.
+// and the warning stays hidden until the selection actually differs. The
+// OPcache toggle alone only restarts PHP and keeps the data, so it shows the
+// reload note instead of the warning.
 function refreshDirtyState() {
   if (!els.infoRuntimeVersion) {
     return;
   }
-  const dirty = els.infoRuntimeVersion.value !== currentRuntimeId;
+  const versionDirty = els.infoRuntimeVersion.value !== currentRuntimeId;
+  const opcacheDirty =
+    Boolean(els.infoOpcache) &&
+    els.infoOpcache.checked !== currentOpcacheEnabled();
+  const dirty = versionDirty || opcacheDirty;
+  const reloadOnly = opcacheDirty && !versionDirty;
 
   if (els.configStatus) {
     els.configStatus.className = dirty ? "dirty-note" : "status-pill";
@@ -606,8 +638,15 @@ function refreshDirtyState() {
   // Changing the version is destructive; the Apply button and warning only
   // appear once the selection differs from what is running. To revert, reselect
   // the original version — the dirty state clears itself.
-  els.configWarning?.classList.toggle("is-hidden", !dirty);
-  els.configApply?.classList.toggle("is-hidden", !dirty);
+  els.configWarning?.classList.toggle("is-hidden", !versionDirty);
+  els.configReloadNote?.classList.toggle("is-hidden", !reloadOnly);
+  if (els.configApply) {
+    els.configApply.classList.toggle("is-hidden", !dirty);
+    els.configApply.classList.toggle("danger", !reloadOnly);
+    els.configApply.textContent = reloadOnly
+      ? "Apply & Reload"
+      : "Apply & Reset";
+  }
 }
 
 function updateConfigState() {
@@ -617,22 +656,77 @@ function updateConfigState() {
   refreshDirtyState();
 }
 
-function applyConfigAndReset() {
+async function applyConfigAndReset() {
   const newRuntimeId = els.infoRuntimeVersion?.value;
+  const newOpcache = els.infoOpcache
+    ? els.infoOpcache.checked
+    : currentOpcacheEnabled();
+  const opcacheChanged = newOpcache !== currentOpcacheEnabled();
+  const runtimeChanged =
+    Boolean(newRuntimeId) && newRuntimeId !== currentRuntimeId;
 
-  if (!newRuntimeId || newRuntimeId === currentRuntimeId) {
+  if (!runtimeChanged && !opcacheChanged) {
     return;
   }
 
-  currentRuntimeId = newRuntimeId;
+  if (opcacheChanged) {
+    // updateFrame() forwards the shell URL's ?opcache= to the new worker, which
+    // reads it once at startup; replaceState also keeps the choice across a
+    // manual reload. The parameter is not part of blueprintSourceKey(), so it
+    // never forces a clean boot by itself.
+    const url = new URL(window.location.href);
+    const param = opcacheUrlParam(newOpcache, config);
+    if (param) {
+      url.searchParams.set("opcache", param);
+    } else {
+      url.searchParams.delete("opcache");
+    }
+    window.history.replaceState(window.history.state, "", url);
+    appendLog(
+      `Experimental OPcache ${newOpcache ? "enabled" : "disabled"}; restarting PHP`,
+    );
+  }
+  if (runtimeChanged) {
+    currentRuntimeId = newRuntimeId;
+    appendLog(`Switching runtime to ${currentRuntimeId}`);
+  }
+  if (!runtimeChanged) {
+    // Data survives this restart, so the debounced journal must land first:
+    // an unflushed install marker makes the next boot reinstall and crash.
+    await flushRemotePersistence();
+  }
   remoteFrameBooted = false;
-  appendLog(`Switching runtime to ${currentRuntimeId}`);
   updateConfigState();
   saveState({ switchedAt: new Date().toISOString() });
   serviceWorkerReady = null;
-  pendingCleanBoot = true;
+  // Only a runtime switch resets the site; toggling OPcache keeps /persist.
+  pendingCleanBoot = runtimeChanged;
   setPhpInfoContent("");
   void updateFrame();
+}
+
+// Ask the worker (via the runtime host) to flush the /persist journal and wait
+// for its "persistence-flushed" reply; gives up after a timeout so a wedged
+// runtime cannot block the panel.
+function flushRemotePersistence(timeoutMs = 5000) {
+  if (!remoteFrameBooted) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      pendingPersistenceFlush = null;
+      resolve();
+    }, timeoutMs);
+    pendingPersistenceFlush = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    if (!postToRemote({ kind: "flush-persistence" })) {
+      clearTimeout(timer);
+      pendingPersistenceFlush = null;
+      resolve();
+    }
+  });
 }
 
 async function main() {
@@ -698,6 +792,9 @@ async function main() {
   // Configuration (Info panel) event listeners
   if (els.infoRuntimeVersion) {
     els.infoRuntimeVersion.addEventListener("change", refreshDirtyState);
+  }
+  if (els.infoOpcache) {
+    els.infoOpcache.addEventListener("change", refreshDirtyState);
   }
   if (els.configApply) {
     els.configApply.addEventListener("click", applyConfigAndReset);

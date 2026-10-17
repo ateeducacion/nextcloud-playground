@@ -3,6 +3,7 @@ import { afterEach, describe, it } from "node:test";
 import {
   isOpcacheEnabled,
   loadPlaygroundConfig,
+  opcacheUrlParam,
 } from "../src/shared/config.js";
 
 const originalFetch = globalThis.fetch;
@@ -23,6 +24,18 @@ describe("isOpcacheEnabled", () => {
     }
     for (const off of ["0", "false", "off", "no", "FALSE", "Off"]) {
       assert.equal(isOpcacheEnabled(off, { opcache: true }), false, off);
+    }
+  });
+});
+
+describe("opcacheUrlParam", () => {
+  it("round-trips through isOpcacheEnabled and omits the parameter at the config default", () => {
+    for (const config of [{}, { opcache: false }, { opcache: true }]) {
+      for (const enabled of [true, false]) {
+        const param = opcacheUrlParam(enabled, config);
+        assert.equal(isOpcacheEnabled(param, config), enabled);
+        assert.equal(param === null, enabled === (config.opcache === true));
+      }
     }
   });
 });

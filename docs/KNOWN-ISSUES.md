@@ -114,9 +114,10 @@ PHP-side facts shape what that means:
   compiles, is blacklisted so snippets are never cached.
 
 **Experimental: `?opcache=1`** (or `"opcache": true` in `playground.config.json`;
-`?opcache=0` turns it off) makes the runtime report the `uwsgi` SAPI name before
-the first request, which is on PHP's whitelist, so the file cache starts on
-PHP 8.3. Consequences:
+`?opcache=0` turns it off; the "OPcache file cache" checkbox in the Info panel
+sets the same parameter and restarts only the PHP runtime, keeping the data)
+makes the runtime report the `uwsgi` SAPI name before the first request, which
+is on PHP's whitelist, so the file cache starts on PHP 8.3. Consequences:
 
 - `PHP_SAPI`/`php_sapi_name()` return `uwsgi` inside Nextcloud. The audit of
   the shipped Nextcloud 33 core found no branch on that name; the only
