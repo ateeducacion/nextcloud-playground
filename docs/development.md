@@ -216,6 +216,21 @@ make lint       # Biome — must pass clean
 
 See the `unit-testing` and `e2e-playwright` agent skills for conventions.
 
+## Experimental OPcache (`?opcache=1`)
+
+OPcache's file cache is configured but never starts under php-wasm's `wasm`
+SAPI on PHP 8.3. Append `?opcache=1` to the shell URL (or set `"opcache": true`
+in `playground.config.json`; `?opcache=0` overrides the config) to make the
+runtime report the `uwsgi` SAPI name so the cache runs. The parameter travels
+shell → `remote.html` → PHP worker; `isOpcacheEnabled()` in
+`src/shared/config.js` is the single decision point. It requires a core bundle
+built by the current `scripts/build-nextcloud-bundle.sh` (its `wasm` patches
+also accept `uwsgi`). Behaviour, memory cost and the persistence caveat are in
+[known issues](KNOWN-ISSUES.md#opcache); `tests/e2e/opcache-canary.spec.mjs`
+asserts that a rewritten PHP file recompiles with and without the flag. Use
+`scripts/perf-compare.mjs` with and without the parameter before changing the
+default.
+
 ## Performance comparisons
 
 When working on boot time, bundle size, persistence, service worker
@@ -232,7 +247,7 @@ Key flags:
 
 - `--base` / `--candidate` (also accept `--prod` / `--preview`, `--before` / `--after`)
 - `--iterations=N` (default 3; boots are expensive)
-- `--no-clean` — measure warm boots (caches, SW, IndexedDB journals, OPcache)
+- `--no-clean` — measure warm boots (caches, SW, IndexedDB journals)
 - `--headed` — visible browser for debugging
 - `--json` — machine-readable output for archiving results
 - `--label-base=... --label-candidate=...` — nicer names in the report

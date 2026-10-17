@@ -3,9 +3,44 @@ import { test } from "node:test";
 
 import {
   collapseAndHydrate,
+  dropLegacyOpcacheJournals,
   flushPendingOps,
   operationTouchesPathPrefix,
 } from "../src/runtime/fs-persistence.js";
+
+// The cross-session OPcache store was retired (restored bytecode never passed
+// timestamp validation). Boot must delete what older sessions left — the known
+// name even without indexedDB.databases(), every legacy name with it — and
+// never touch the fs journal.
+test("dropLegacyOpcacheJournals deletes only retired nextcloud-opcache stores", async () => {
+  const deleted = [];
+  const withEnumeration = {
+    deleteDatabase: (name) => deleted.push(name),
+    databases: async () => [
+      { name: "nextcloud-opcache:8.3" },
+      { name: "nextcloud-opcache:8.2" },
+      { name: "nextcloud-fs-journal:scope-1" },
+      { name: "nextcloud-opcache" },
+    ],
+  };
+  const requested = await dropLegacyOpcacheJournals("8.3", withEnumeration);
+  assert.deepEqual(requested.sort(), [
+    "nextcloud-opcache:8.2",
+    "nextcloud-opcache:8.3",
+  ]);
+  assert.deepEqual(deleted.sort(), requested.sort());
+
+  const deletedWithout = [];
+  const withoutEnumeration = {
+    deleteDatabase: (name) => deletedWithout.push(name),
+  };
+  assert.deepEqual(await dropLegacyOpcacheJournals("8.3", withoutEnumeration), [
+    "nextcloud-opcache:8.3",
+  ]);
+  assert.deepEqual(deletedWithout, ["nextcloud-opcache:8.3"]);
+
+  assert.deepEqual(await dropLegacyOpcacheJournals("8.3", undefined), []);
+});
 
 // Regression guard for the journal-flush OOM: a heavy install rewrites the same
 // (multi-MB) SQLite DB hundreds of times within one debounce window. Hydrating

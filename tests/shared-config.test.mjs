@@ -1,8 +1,31 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { loadPlaygroundConfig } from "../src/shared/config.js";
+import {
+  isOpcacheEnabled,
+  loadPlaygroundConfig,
+} from "../src/shared/config.js";
 
 const originalFetch = globalThis.fetch;
+
+describe("isOpcacheEnabled", () => {
+  it("defaults to the config flag when no URL parameter is present", () => {
+    assert.equal(isOpcacheEnabled(null, {}), false);
+    assert.equal(isOpcacheEnabled(null, { opcache: false }), false);
+    assert.equal(isOpcacheEnabled(undefined, { opcache: true }), true);
+    assert.equal(isOpcacheEnabled("", { opcache: true }), true);
+    // Only a boolean true enables it from config.
+    assert.equal(isOpcacheEnabled(null, { opcache: "1" }), false);
+  });
+
+  it("lets the URL parameter override the config", () => {
+    for (const on of ["1", "true", "on", "yes", "anything"]) {
+      assert.equal(isOpcacheEnabled(on, { opcache: false }), true, on);
+    }
+    for (const off of ["0", "false", "off", "no", "FALSE", "Off"]) {
+      assert.equal(isOpcacheEnabled(off, { opcache: true }), false, off);
+    }
+  });
+});
 
 describe("loadPlaygroundConfig", () => {
   afterEach(() => {

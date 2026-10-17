@@ -73,25 +73,29 @@ apply_patch() {
   echo "  patched $file" >&2
 }
 
-# (a) lib/base.php — treat occ (no REQUEST_URI) as CLI under the wasm SAPI.
+# The playground's PHP reports the SAPI name `wasm`, or `uwsgi` when the
+# experimental OPcache flag is on (`?opcache=1` / config `opcache`; php-src <= 8.4
+# only starts OPcache for whitelisted SAPI names). Keep this list in sync with
+# OPCACHE_SAPI_NAME in src/runtime/php-loader.js. See docs/KNOWN-ISSUES.md#opcache.
+# (a) lib/base.php — treat occ (no REQUEST_URI) as CLI under the playground SAPIs.
 apply_patch "lib/base.php" \
-  "s/self::\\\$CLI = \\(php_sapi_name\\(\\) == 'cli'\\);/self::\\\$CLI = (php_sapi_name() == 'cli') || (PHP_SAPI === 'wasm' \\&\\& empty(\\\$_SERVER['REQUEST_URI']));/" \
-  "(PHP_SAPI === 'wasm' && empty(\$_SERVER['REQUEST_URI']))"
+  "s/self::\\\$CLI = \\(php_sapi_name\\(\\) == 'cli'\\);/self::\\\$CLI = (php_sapi_name() == 'cli') || (in_array(PHP_SAPI, ['wasm', 'uwsgi'], true) \\&\\& empty(\\\$_SERVER['REQUEST_URI']));/" \
+  "(in_array(PHP_SAPI, ['wasm', 'uwsgi'], true) && empty(\$_SERVER['REQUEST_URI']))"
 
-# (b) lib/private/Config.php — skip unreliable shared flock under wasm.
+# (b) lib/private/Config.php — skip unreliable shared flock under the playground SAPIs.
 apply_patch "lib/private/Config.php" \
-  "s/if \\(!flock\\(\\\$filePointer, LOCK_SH\\)\\) \\{/if (!flock(\\\$filePointer, LOCK_SH) \\&\\& PHP_SAPI !== 'wasm') {/" \
-  "if (!flock(\$filePointer, LOCK_SH) && PHP_SAPI !== 'wasm') {"
+  "s/if \\(!flock\\(\\\$filePointer, LOCK_SH\\)\\) \\{/if (!flock(\\\$filePointer, LOCK_SH) \\&\\& !in_array(PHP_SAPI, ['wasm', 'uwsgi'], true)) {/" \
+  "if (!flock(\$filePointer, LOCK_SH) && !in_array(PHP_SAPI, ['wasm', 'uwsgi'], true)) {"
 
-# (c) lib/private/Config.php — skip unreliable exclusive flock under wasm.
+# (c) lib/private/Config.php — skip unreliable exclusive flock under the playground SAPIs.
 apply_patch "lib/private/Config.php" \
-  "s/if \\(!flock\\(\\\$filePointer, LOCK_EX\\)\\) \\{/if (!flock(\\\$filePointer, LOCK_EX) \\&\\& PHP_SAPI !== 'wasm') {/" \
-  "if (!flock(\$filePointer, LOCK_EX) && PHP_SAPI !== 'wasm') {"
+  "s/if \\(!flock\\(\\\$filePointer, LOCK_EX\\)\\) \\{/if (!flock(\\\$filePointer, LOCK_EX) \\&\\& !in_array(PHP_SAPI, ['wasm', 'uwsgi'], true)) {/" \
+  "if (!flock(\$filePointer, LOCK_EX) && !in_array(PHP_SAPI, ['wasm', 'uwsgi'], true)) {"
 
-# (d) console.php — skip the posix uid/owner mismatch refusal under wasm.
+# (d) console.php — skip the posix uid/owner mismatch refusal under the playground SAPIs.
 apply_patch "console.php" \
-  "s/if \\(\\\$user !== \\\$configUser\\) \\{/if (\\\$user !== \\\$configUser \\&\\& PHP_SAPI !== 'wasm') {/" \
-  "if (\$user !== \$configUser && PHP_SAPI !== 'wasm') {"
+  "s/if \\(\\\$user !== \\\$configUser\\) \\{/if (\\\$user !== \\\$configUser \\&\\& !in_array(PHP_SAPI, ['wasm', 'uwsgi'], true)) {/" \
+  "if (\$user !== \$configUser && !in_array(PHP_SAPI, ['wasm', 'uwsgi'], true)) {"
 
 # (e) lib/private/Avatar/Avatar.php — guard imagettfbbox returning false.
 apply_patch "lib/private/Avatar/Avatar.php" \
