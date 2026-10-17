@@ -227,9 +227,15 @@ shell → `remote.html` → PHP worker; `isOpcacheEnabled()` in
 built by the current `scripts/build-nextcloud-bundle.sh` (its `wasm` patches
 also accept `uwsgi`). Behaviour, memory cost and the persistence caveat are in
 [known issues](KNOWN-ISSUES.md#opcache); `tests/e2e/opcache-canary.spec.mjs`
-asserts that a rewritten PHP file recompiles with and without the flag. Use
-`scripts/perf-compare.mjs` with and without the parameter before changing the
-default.
+asserts that a rewritten PHP file recompiles with and without the flag. The
+"OPcache file cache" checkbox in the Info panel writes the same parameter into
+the shell URL (`history.replaceState`), asks the worker to flush the
+persistence journal (`flush-persistence` → `persistence-flushed`; the debounced
+flush could otherwise leave the install marker behind and the next boot would
+reinstall) and reloads only the runtime iframe with the same scope: a new
+worker starts with the new SAPI name and `/persist` is kept ("Apply & Reload");
+combined with a version change the destructive "Apply & Reset" flow still wins. Use `scripts/perf-compare.mjs` with and
+without the parameter before changing the default.
 
 ## Performance comparisons
 

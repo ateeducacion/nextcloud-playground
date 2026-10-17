@@ -59,7 +59,8 @@ Generated output is under `assets/nextcloud/`, `assets/manifests/`, and `dist/`.
 - OPcache bytecode (`/internal/shared/opcache`) is not persisted: the core is
   re-extracted with fresh mtimes every boot, so a journaled cache never validated.
   Boots delete the retired `nextcloud-opcache:*` stores. OPcache itself is inert
-  under the `wasm` SAPI unless `?opcache=1` is used; see docs/KNOWN-ISSUES.md#opcache.
+  under the `wasm` SAPI unless `?opcache=1` (or the Info panel's OPcache checkbox,
+  which reloads only the runtime iframe) is used; see docs/KNOWN-ISSUES.md#opcache.
 - Install reuse depends on installed config and matching manifest state. On a
   reused install, blueprint steps run only for the session and volatile code
   (`login`, `installApp`, `writeFile`/`unzip` outside the journal; see
