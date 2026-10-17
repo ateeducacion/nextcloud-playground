@@ -193,20 +193,17 @@ export function createPhpRuntime(
 
       // Replay/start fs-journal persistence for mutable paths.
       if (scopeId) {
-        const { clearJournal, clearOpcacheJournal, initFsPersistence } =
+        const { clearJournal, dropLegacyOpcacheJournals, initFsPersistence } =
           await import("./fs-persistence.js");
-        // On a clean boot (reset / blueprint change), wipe the old journals
+        // On a clean boot (reset / blueprint change), wipe the old journal
         // first; then ALWAYS start journaling so the fresh env persists on later
         // reloads (a same-blueprint reload then reuses it, no reinstall).
         if (forceCleanBoot) {
           await clearJournal(scopeId);
-          await clearOpcacheJournal(resolvedPhpVersion);
         }
-        persistenceController = await initFsPersistence(
-          php,
-          scopeId,
-          resolvedPhpVersion,
-        );
+        // OPcache bytecode is no longer persisted; drop stores older sessions left.
+        dropLegacyOpcacheJournals(resolvedPhpVersion);
+        persistenceController = await initFsPersistence(php, scopeId);
       }
 
       // The default auto_prepend_file at /internal/shared/auto_prepend_file.php

@@ -131,12 +131,14 @@ PHP 8.3. Consequences:
   WASM linear memory grows accordingly. Moodle Playground measured +32…71 MiB
   for −33 % cold start and 58 → 17 ms PHP per request; Nextcloud has not been
   measured yet, which is why the default stays off.
-- Persistence: `fs-persistence.js` journals `/internal/shared/opcache` to the
-  IndexedDB store `nextcloud-opcache:<phpVersion>`. The core is re-extracted
-  into MEMFS on every boot with fresh mtimes, so restored bytecode never passes
-  timestamp validation and is recompiled; with the flag on, that journal costs
-  IndexedDB writes without a cross-session benefit. Keeping or dropping it is a
-  separate decision.
+- Persistence: the bytecode is **not** journaled. Until October 2026
+  `fs-persistence.js` mirrored `/internal/shared/opcache` into the IndexedDB
+  store `nextcloud-opcache:<phpVersion>`; the core is re-extracted into MEMFS
+  on every boot with fresh mtimes, so restored bytecode never passed timestamp
+  validation, and with the cache live the journal alone made a clean boot
+  ~2.4× slower (7.1 s → 17.4 s locally). The store was removed; boots delete
+  any `nextcloud-opcache:*` database left by older sessions. Reloads
+  recompile from scratch, which is the ephemeral model this playground follows.
 - A rewrite that restores a file's previous mtime to the second is the known
   blind spot of timestamp validation; no playground write path does that.
 

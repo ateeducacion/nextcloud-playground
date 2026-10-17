@@ -247,7 +247,7 @@ Key flags:
 
 - `--base` / `--candidate` (also accept `--prod` / `--preview`, `--before` / `--after`)
 - `--iterations=N` (default 3; boots are expensive)
-- `--no-clean` — measure warm boots (caches, SW, IndexedDB journals, OPcache)
+- `--no-clean` — measure warm boots (caches, SW, IndexedDB journals)
 - `--headed` — visible browser for debugging
 - `--json` — machine-readable output for archiving results
 - `--label-base=... --label-candidate=...` — nicer names in the report
