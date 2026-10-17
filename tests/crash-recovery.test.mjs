@@ -8,6 +8,7 @@ import {
   bootAfterUnreplayedCrash,
   createSnapshotManager,
   DEFAULT_MAX_CRASH_DATA_DIR_BYTES,
+  requestPathname,
 } from "../src/runtime/crash-recovery.js";
 
 function createTestFs(entries = {}) {
@@ -237,4 +238,19 @@ test("boots a replacement runtime after an unreplayed crash, never resending the
     onError: (error) => errors.push(error.message),
   });
   assert.deepEqual(errors, ["bootstrap failed"]);
+});
+
+// "PHP.run() failed with exit code 255" with empty stdout and stderr gave no
+// clue which page failed; the path now travels with it (no query string,
+// which can carry session tokens).
+test("requestPathname returns only the path, without query or fragment", () => {
+  assert.equal(
+    requestPathname({ url: "http://localhost/admin/index.php?id=3&token=s#a" }),
+    "/admin/index.php",
+  );
+});
+
+test("requestPathname falls back to / for a missing or unparsable URL", () => {
+  assert.equal(requestPathname(undefined), "/");
+  assert.equal(requestPathname({ url: "http://[" }), "/");
 });
