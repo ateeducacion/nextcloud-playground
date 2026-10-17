@@ -706,15 +706,21 @@ async function applyConfigAndReset() {
 }
 
 // Ask the worker (via the runtime host) to flush the /persist journal and wait
-// for its "persistence-flushed" reply; gives up after a timeout so a wedged
-// runtime cannot block the panel.
-function flushRemotePersistence(timeoutMs = 5000) {
+// for its "persistence-flushed" reply. The flush rewrites the journal store
+// (SQLite DB included), which takes seconds on slow machines; the cap only
+// keeps a wedged runtime from blocking the panel forever.
+function flushRemotePersistence(timeoutMs = 60_000) {
   if (!remoteFrameBooted) {
     return Promise.resolve();
   }
+  appendLog("Flushing the persistence journal before restarting PHP.");
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       pendingPersistenceFlush = null;
+      appendLog(
+        "Persistence flush did not finish in time; restarting anyway.",
+        true,
+      );
       resolve();
     }, timeoutMs);
     pendingPersistenceFlush = () => {
