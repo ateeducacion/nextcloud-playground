@@ -20,6 +20,7 @@ import {
   isSafeToReplay,
   formatErrorDetail,
   createSnapshotManager,
+  requestPathname,
 } from "./src/runtime/crash-recovery.js";
 
 const workerUrl = new URL(self.location.href);
@@ -331,9 +332,7 @@ function installBridgeListener() {
         // reach the host on Firefox/Safari.  Notify the shell so it can
         // show a user-friendly warning.
         if (isEmscriptenNetworkError(error)) {
-          const requestUrl = data.request?.url || "";
-          const pagePath =
-            new URL(requestUrl, "http://localhost").pathname || "/";
+          const pagePath = requestPathname(data.request);
           postShell({
             kind: "wasm-network-error",
             detail: `Page "${pagePath}" failed — a network call could not complete in this browser's WebAssembly runtime.`,
@@ -344,7 +343,11 @@ function installBridgeListener() {
         if (!isFatalWasmError(error)) {
           const detail = formatErrorDetail(error);
           await respondError(data.id, detail, 500);
-          postShell({ kind: "error", detail });
+          postShell({
+            kind: "error",
+            detail,
+            path: requestPathname(data.request),
+          });
           return;
         }
 

@@ -17,6 +17,7 @@ import {
   captureException,
   captureMessage,
   initMonitoring,
+  runtimeErrorExtra,
 } from "../shared/monitoring.js";
 import {
   blueprintSourceKey,
@@ -541,9 +542,11 @@ function bindShellChannel() {
         // its own boot failures and this side reports them at the level it asked
         // for — an unsupported browser must not group with runtime regressions.
         const hint = message.monitoring;
-        captureMessage(message.detail, hint?.level || "error", {
-          source: hint?.source || "runtime",
-        });
+        captureMessage(
+          message.detail,
+          hint?.level || "error",
+          runtimeErrorExtra({ source: hint?.source, path: message.path }),
+        );
         if (hint?.source === "service-worker-unsupported") {
           showBlockingError(message.summary || message.detail);
         }
