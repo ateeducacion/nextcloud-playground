@@ -19,3 +19,7 @@ outputs/
 # Generated build metadata (the deployment Build ID) — never committed.
 src/generated/
 assets/build-version.json
+
+# Classic Service Worker bundle built from sw.js (scripts/esbuild.worker.mjs).
+sw.bundle.js
+sw.bundle.js.map
