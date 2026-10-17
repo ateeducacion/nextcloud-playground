@@ -7,6 +7,8 @@ import {
   createServiceWorkerUnsupportedError,
   isServiceWorkerSupported,
   isServiceWorkerUnsupportedError,
+  registerClassicServiceWorker,
+  SERVICE_WORKER_SCRIPT,
 } from "../shared/service-worker-support.js";
 import { saveSessionState } from "../shared/storage.js";
 
@@ -76,18 +78,14 @@ async function registerRuntimeServiceWorker(scopeId, runtimeId) {
     return navigator.serviceWorker?.ready;
   }
 
-  const swUrl = new URL("../../sw.js", import.meta.url);
+  const swUrl = new URL(`../../${SERVICE_WORKER_SCRIPT}`, import.meta.url);
   swUrl.searchParams.set("v", BUILD_VERSION);
   swUrl.searchParams.set("scope", scopeId);
   swUrl.searchParams.set("runtime", runtimeId);
 
   let registration;
   try {
-    registration = await navigator.serviceWorker.register(swUrl, {
-      scope: "./",
-      type: "module",
-      updateViaCache: "none",
-    });
+    registration = await registerClassicServiceWorker(swUrl);
   } catch (error) {
     // A rejected registration blanks the page just like a missing API does, so
     // tag it and let it propagate to the boot overlay instead of dying silently.
