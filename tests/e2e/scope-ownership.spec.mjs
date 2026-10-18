@@ -3,18 +3,34 @@ import { expect, test } from "@playwright/test";
 test.describe.configure({ timeout: 300_000 });
 const prefix = "nextcloud-playground";
 
-async function ready(page) {
-  await expect(page.locator("#address-input")).toBeEnabled({
-    timeout: 180_000,
-  });
-  const frame = page.frameLocator("#site-frame").frameLocator("#remote-frame");
-  await expect(frame.locator("body")).toContainText(/Nextcloud|Files|Log in/, {
-    timeout: 60_000,
-  });
+async function ready(page, requireFiles = false) {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => document.querySelector("#address-input")?.disabled),
+      { timeout: 180_000 },
+    )
+    .toBe(false);
+  // Resolve the current documents on each poll so readiness refers to the
+  // active host after Reset, including when Firefox reuses a frame context.
+  await expect
+    .poll(
+      () =>
+        page.evaluate((requireFiles) => {
+          const host = document.querySelector("#site-frame").contentDocument;
+          const app = host?.querySelector("#remote-frame")?.contentDocument;
+          return {
+            body: app?.body?.id,
+            files: !requireFiles || app?.body?.innerText.includes("Files"),
+          };
+        }, requireFiles),
+      { timeout: 60_000 },
+    )
+    .toEqual({ body: "body-user", files: true });
 }
 
 async function postOnce(page, scope, oldId = null) {
-  return page.frame({ url: /remote\.html/u }).evaluate(
+  return page.evaluate(
     async ({ prefix, scope, oldId }) => {
       const channel = new BroadcastChannel(`${prefix}-php:${scope}`);
       let id;
@@ -39,11 +55,14 @@ async function postOnce(page, scope, oldId = null) {
         if (data.kind === "http-response" && data.id === id)
           replies.push(data.id);
       };
-      const source = new URL(document.querySelector("#remote-frame").src);
+      const host = document.querySelector("#site-frame");
+      const source = new URL(
+        host.contentDocument.querySelector("#remote-frame").src,
+      );
       const root = source.pathname.match(
         /^(.*\/playground\/[^/]+\/[^/]+)\//u,
       )[1];
-      const response = await fetch(
+      const response = await host.contentWindow.fetch(
         `${root}/config/config.php?ownership-probe=1`,
         {
           method: "POST",
@@ -154,16 +173,29 @@ test("distinct scopes acquire ownership independently", async ({
 test("Reset releases the old worker before starting a new owner", async ({
   page,
 }) => {
+  page.on("dialog", async (dialog) => {
+    expect(dialog.type()).toBe("beforeunload");
+    await dialog.accept();
+  });
   const scope = `reset-${crypto.randomUUID()}`;
   await page.goto(`/?scope=${scope}`);
-  await ready(page);
+  await ready(page, true);
   expect((await postOnce(page, scope)).replies).toHaveLength(1);
-  const previous = page
-    .frames()
-    .find((frame) => frame.url().includes("/playground/"));
+  const previous = await page.locator("#site-frame").getAttribute("src");
   await page.locator("#panel-toggle-button").click();
   await page.locator("#reset-button").click();
-  await expect.poll(() => previous.isDetached()).toBe(true);
-  await ready(page);
+  await expect(page.locator("#site-frame")).not.toHaveAttribute(
+    "src",
+    previous,
+  );
+  await expect(page.locator("#site-frame")).toHaveAttribute("src", /clean=1/);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.querySelector("#site-frame").contentWindow.location.href,
+      ),
+    )
+    .not.toBe(previous);
+  await ready(page, true);
   expect((await postOnce(page, scope)).replies).toHaveLength(1);
 });

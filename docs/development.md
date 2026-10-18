@@ -293,6 +293,12 @@ Reset can clear the stored blueprint before the next remote host starts. The
 remote host treats that missing blueprint as the default configuration, including
 the optional sandboxed-iframe compatibility setting.
 
+The Reset regression waits for a new remote-host document with `clean=1`, then
+checks the current Nextcloud Files DOM and a single POST response. Detachment of
+an app frame alone is not a Reset boundary: the bootstrap/autologin navigation
+can also replace that frame. Resolve the live nested documents after navigation
+rather than retaining an old app-frame handle.
+
 Each scope has one active remote host, enforced by a native Web Lock before any
 worker starts or persisted state is cleared. A duplicated tab or explicit
 `?scope=` opened twice reports an ownership conflict; close the original owner
