@@ -286,3 +286,40 @@ Typical workflow for a perf PR:
 Update docs in the same change if you touch: `playground.config.json`, the
 default blueprint, the boot flow in `src/runtime/bootstrap.js`, the storage /
 manifest model, the bundle build, the WASM patch set, or the SW routing.
+
+## Exclusive scope ownership
+
+Reset can clear the stored blueprint before the next remote host starts. The
+remote host treats that missing blueprint as the default configuration, including
+the optional sandboxed-iframe compatibility setting.
+
+The Reset regression waits for a new remote-host document with `clean=1`, then
+checks the current Nextcloud Files DOM and a single POST response. Detachment of
+an app frame alone is not a Reset boundary: the bootstrap/autologin navigation
+can also replace that frame. Resolve the live nested documents after navigation
+rather than retaining an old app-frame handle.
+
+Each scope has one active remote host, enforced by a native Web Lock before any
+worker starts or persisted state is cleared. A duplicated tab or explicit
+`?scope=` opened twice reports an ownership conflict; close the original owner
+and explicitly reload the other tab, or use a fresh scope. Different scopes
+remain independent. Web Locks are required; a missing or denied API fails closed.
+
+`pagehide` terminates PHP before releasing ownership; BFCache restores reload the
+remote host. Shell notifications are isolated by iframe generation, and HTTP
+listening starts only after worker configuration. The Service Worker, response
+UUIDs, persistence namespaces and safe crash-replay rules are unchanged. No POST
+is queued or replayed on handover. Deployments must close old tabs and refresh
+stale Service Worker caches because older code does not acquire the lock.
+
+### Concurrent app-frame routing: separate follow-up
+
+A local Chromium check against both unchanged main and the ownership fix found
+that, with two distinct scopes open, a POST from the second Nextcloud app iframe
+can reach the static server and return HTTP 405 instead of entering the PHP
+channel. Reload of that tab can also fail to commit. This is not corrected by the
+ownership gate. The independent-scope regression verifies native lock ownership
+and the controlled remote-host HTTP bridge; ordinary reload and Reset are tested
+separately. Do not interpret those checks as validation of every concurrent
+Nextcloud app-frame navigation. Investigate routing separately before claiming
+full multi-instance browser support.

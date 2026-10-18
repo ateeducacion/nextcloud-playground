@@ -106,6 +106,7 @@ let currentPath = "/";
 const backStack = [];
 let suppressBackPush = false;
 let channel;
+let instanceId;
 let serviceWorkerReady = null;
 let activeBlueprint;
 let remoteFrameBooted = false;
@@ -267,6 +268,10 @@ async function updateFrame() {
   }
 
   const url = resolveRemoteUrl(scopeId, currentRuntimeId, currentPath);
+  instanceId = globalThis.crypto.randomUUID();
+  url.searchParams.set("instance", instanceId);
+  channel?.close();
+  bindShellChannel();
   if (pendingCleanBoot) {
     url.searchParams.set("clean", "1");
   }
@@ -489,7 +494,7 @@ async function importPayload(file) {
 }
 
 function bindShellChannel() {
-  channel = new BroadcastChannel(createShellChannel(scopeId));
+  channel = new BroadcastChannel(createShellChannel(scopeId, instanceId));
   channel.addEventListener("message", (event) => {
     const message = event.data;
 
@@ -833,7 +838,6 @@ async function main() {
     });
   }
 
-  bindShellChannel();
   bindServiceWorkerMessages();
   setPhpInfoContent("");
   setUiLocked(true);

@@ -3,6 +3,7 @@ import { loadActiveBlueprint } from "../shared/blueprint.js";
 import { getDefaultRuntime, loadPlaygroundConfig } from "../shared/config.js";
 import { buildScopedSitePath } from "../shared/paths.js";
 import { createShellChannel } from "../shared/protocol.js";
+import { acquireScopeOwnership } from "../shared/scope-ownership.js";
 import {
   createServiceWorkerUnsupportedError,
   isServiceWorkerSupported,
@@ -18,6 +19,23 @@ const progressFillEl = document.querySelector("#progress-fill");
 const progressPercentEl = document.querySelector("#progress-percent");
 const frameEl = document.querySelector("#remote-frame");
 let phpWorker;
+const instanceId =
+  new URL(window.location.href).searchParams.get("instance") ||
+  globalThis.crypto.randomUUID();
+let releaseScope;
+let disposed = false;
+let bootstrapTask;
+window.addEventListener("pagehide", () => {
+  disposed = true;
+  phpWorker?.terminate();
+  bootstrapTask.then(
+    () => releaseScope?.(),
+    () => releaseScope?.(),
+  );
+});
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) window.location.reload();
+});
 let _activeScopeId;
 let _activeRuntimeId;
 let activePath = "/";
@@ -50,7 +68,7 @@ function emit(scopeId, message) {
     setRemoteProgress(message.detail);
   }
 
-  const channel = new BroadcastChannel(createShellChannel(scopeId));
+  const channel = new BroadcastChannel(createShellChannel(scopeId, instanceId));
   channel.postMessage(message);
   channel.close();
 }
@@ -249,6 +267,11 @@ function bindShellCommands(scopeId, runtimeId) {
 async function bootstrapRemote() {
   const url = new URL(window.location.href);
   const scopeId = url.searchParams.get("scope");
+  releaseScope = await acquireScopeOwnership(scopeId);
+  if (disposed) {
+    releaseScope();
+    return;
+  }
   const requestedRuntimeId = url.searchParams.get("runtime");
   const requestedPath = url.searchParams.get("path") || "/";
   forceCleanBoot = url.searchParams.get("clean") === "1";
@@ -285,7 +308,7 @@ async function bootstrapRemote() {
       scopeId,
       addonProxyUrl: config.addonProxyUrl || null,
       sandboxedIframeCompatibility:
-        blueprint.browserCompatibility?.sandboxedIframes === "service-worker",
+        blueprint?.browserCompatibility?.sandboxedIframes === "service-worker",
     });
   }
 
@@ -295,6 +318,7 @@ async function bootstrapRemote() {
     });
   }
 
+  if (disposed) return;
   if (!phpWorker) {
     const workerUrl = new URL(
       "../../dist/php-worker.bundle.js",
@@ -304,6 +328,7 @@ async function bootstrapRemote() {
     // never serves a stale runtime from the browser HTTP cache.
     workerUrl.searchParams.set("v", BUILD_VERSION);
     workerUrl.searchParams.set("scope", scopeId);
+    workerUrl.searchParams.set("instance", instanceId);
     workerUrl.searchParams.set("runtime", runtime.id);
     if (opcacheParam !== null) {
       workerUrl.searchParams.set("opcache", opcacheParam);
@@ -326,13 +351,24 @@ async function bootstrapRemote() {
         detail,
       });
     });
+    const workerReadyPromise = waitForPhpWorkerReady(
+      scopeId,
+      runtime.id,
+      phpWorker,
+    );
     phpWorker.postMessage({
       kind: "configure-blueprint",
+      runtimeParams: {
+        scopeId,
+        runtimeId: runtime.id,
+        instanceId,
+        opcacheParam,
+      },
       blueprint,
       clean: forceCleanBoot,
     });
+    await workerReadyPromise;
   }
-  await waitForPhpWorkerReady(scopeId, runtime.id, phpWorker);
   setRemoteProgress(`php-worker ready for ${runtime.id}.`, 0.16);
 
   saveSessionState(scopeId, {
@@ -342,7 +378,9 @@ async function bootstrapRemote() {
 
   // Listen to the shell channel so bootstrap progress from the PHP worker
   // (0.2 → 0.95) updates the loading overlay in real time.
-  const shellChannel = new BroadcastChannel(createShellChannel(scopeId));
+  const shellChannel = new BroadcastChannel(
+    createShellChannel(scopeId, instanceId),
+  );
   let bootstrapDone = false;
   shellChannel.addEventListener("message", (event) => {
     const msg = event.data;
@@ -377,7 +415,8 @@ async function bootstrapRemote() {
   });
 }
 
-bootstrapRemote().catch((error) => {
+bootstrapTask = bootstrapRemote();
+bootstrapTask.catch((error) => {
   const url = new URL(window.location.href);
   const scopeId = url.searchParams.get("scope");
   setOverlayVisible(true);
@@ -386,7 +425,9 @@ bootstrapRemote().catch((error) => {
   setRemoteProgress(String(error?.message || error));
   emit(scopeId, {
     kind: "error",
-    detail: String(error?.stack || error?.message || error),
+    detail: [String(error?.message || error), error?.stack]
+      .filter(Boolean)
+      .join("\n"),
     // `detail` carries the stack for the runtime log; `summary` is the one-line
     // text the shell is allowed to put in front of the user.
     summary: String(error?.message || error),
