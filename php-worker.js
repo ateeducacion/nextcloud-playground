@@ -24,10 +24,11 @@ import {
 } from "./src/runtime/crash-recovery.js";
 
 const workerUrl = new URL(self.location.href);
-const scopeId = workerUrl.searchParams.get("scope");
-const runtimeId = workerUrl.searchParams.get("runtime");
-const opcacheParam = workerUrl.searchParams.get("opcache");
+let scopeId = workerUrl.searchParams.get("scope");
+let runtimeId = workerUrl.searchParams.get("runtime");
+let opcacheParam = workerUrl.searchParams.get("opcache");
 
+let instanceId = workerUrl.searchParams.get("instance");
 let bridgeChannel = null;
 let runtimeStatePromise = null;
 let requestQueue = Promise.resolve();
@@ -49,7 +50,7 @@ let reactiveRestartCount = 0;
 let snapshot = null;
 
 function postShell(message) {
-  const channel = new BroadcastChannel(createShellChannel(scopeId));
+  const channel = new BroadcastChannel(createShellChannel(scopeId, instanceId));
   channel.postMessage(message);
   channel.close();
 }
@@ -485,6 +486,17 @@ function installMessageListener() {
       return;
     }
 
+    const params = event.data.runtimeParams;
+    if (params) {
+      scopeId = params.scopeId;
+      runtimeId = params.runtimeId;
+      instanceId = params.instanceId;
+      opcacheParam = params.opcacheParam || null;
+    }
+    bridgeChannel?.close();
+    bridgeChannel = new BroadcastChannel(createPhpBridgeChannel(scopeId));
+    installBridgeListener();
+
     activeBlueprint = data.blueprint || null;
     forceCleanBoot = data.clean === true;
 
@@ -497,21 +509,8 @@ function installMessageListener() {
 }
 
 try {
-  bridgeChannel = new BroadcastChannel(createPhpBridgeChannel(scopeId));
-  installBridgeListener();
+  // HTTP must wait for the owning host to configure this worker.
   installMessageListener();
-
-  respond({
-    kind: "worker-ready",
-    scopeId,
-    runtimeId,
-  });
-
-  self.postMessage({
-    kind: "worker-ready",
-    scopeId,
-    runtimeId,
-  });
 } catch (error) {
   self.postMessage({
     kind: "worker-startup-error",
