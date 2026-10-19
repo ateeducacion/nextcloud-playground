@@ -110,7 +110,7 @@ function withAppBasePath(pathname) {
 
 function buildErrorResponse(message, status = 500) {
   return new Response(
-    `<!doctype html><meta charset="utf-8"><title>Nextcloud Playground Error</title><body><pre>${message}</pre></body>`,
+    `<!doctype html><meta charset="utf-8"><title>Nextcloud Playground Error</title><body><pre>${escapeHtml(message)}</pre></body>`,
     {
       status,
       headers: {

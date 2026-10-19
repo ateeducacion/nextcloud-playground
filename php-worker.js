@@ -5,7 +5,9 @@ import {
 import {
   createPhpBridgeChannel,
   createShellChannel,
+  escapeHtml,
   formatErrorDetail,
+  formatErrorHtml,
 } from "./src/shared/protocol.js";
 import {
   bootstrapNextcloud,
@@ -85,7 +87,7 @@ function deserializeRequest(requestLike) {
 
 function buildLoadingResponse(message, status = 503) {
   return new Response(
-    `<!doctype html><meta charset="utf-8"><title>Nextcloud S Playground</title><body><pre>${message}</pre></body>`,
+    `<!doctype html><meta charset="utf-8"><title>Nextcloud S Playground</title><body><pre>${escapeHtml(message)}</pre></body>`,
     {
       status,
       headers: {
@@ -448,7 +450,7 @@ async function capturePhpInfo() {
     postShell({
       kind: "phpinfo",
       detail: `Failed to capture PHP info: ${formatErrorDetail(error)}`,
-      html: `<!doctype html><meta charset="utf-8"><pre>${formatErrorDetail(error)}</pre>`,
+      html: formatErrorHtml(error),
     });
   }
 }
