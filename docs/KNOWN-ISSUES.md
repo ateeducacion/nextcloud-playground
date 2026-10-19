@@ -89,8 +89,8 @@ To fit the browser, heavy optional shipped apps are removed from the bundle
 
 ## Other absent extensions / capabilities
 
-Absent: `pcntl`, `gmp`, `sodium`, `ftp`, `imap`, `ldap`. OPcache is configured
-but inert unless the experimental flag below is on. `proc_open`/`exec`/`shell_exec`
+Absent: `pcntl`, `gmp`, `sodium`, `ftp`, `imap`, `ldap`. OPcache's file cache is
+on by default (see below). `proc_open`/`exec`/`shell_exec`
 exist as functions but cannot spawn processes. Anything depending on those
 (external auth backends, shell integrations) won't work.
 
@@ -101,7 +101,8 @@ exist as functions but cannot spawn processes. Anything depending on those
 PHP-side facts shape what that means:
 
 - **PHP 8.3/8.4 never start OPcache under php-wasm's `wasm` SAPI** (php-src
-  only accepts a fixed list of SAPI names). `opcache_get_status()` returns
+  only accepts a fixed list of SAPI names), which is why the runtime reports
+  `uwsgi` instead (below). With `?opcache=0` `opcache_get_status()` returns
   `false` and nothing is cached. PHP 8.5 removed that whitelist, so the cache
   would run for real there (not offered by this playground today).
 - In file-cache-only mode `opcache_reset()` and `opcache_invalidate()` are
@@ -113,11 +114,17 @@ PHP-side facts shape what that means:
   bytecode. `/internal/eval.php`, the single path every `php.run({ code })`
   compiles, is blacklisted so snippets are never cached.
 
-**Experimental: `?opcache=1`** (or `"opcache": true` in `playground.config.json`;
-`?opcache=0` turns it off; the "OPcache file cache" checkbox in the Info panel
-sets the same parameter and restarts only the PHP runtime, keeping the data)
-makes the runtime report the `uwsgi` SAPI name before the first request, which
-is on PHP's whitelist, so the file cache starts on PHP 8.3. Consequences:
+**On by default** (`"opcache": true` in `playground.config.json`; `?opcache=0`
+turns it off and `?opcache=1` forces it on; the "OPcache file cache" checkbox in
+the Info panel sets the same parameter and restarts only the PHP runtime,
+keeping the data): the runtime reports the `uwsgi` SAPI name before the first
+request, which is on PHP's whitelist, so the file cache starts on PHP 8.3.
+The default was flipped after the soak test in issue #106, using the
+measurements of Moodle Playground
+([ADR-0046](https://github.com/ateeducacion/moodle-playground/blob/main/docs/architecture/adr/ADR-0046-opcache-on-by-default.md):
+2–3.5× faster navigation in Chromium, Firefox and WebKit, unchanged install
+and reload time, about 400 MB lower peak browser RSS, no memory errors).
+Consequences:
 
 - `PHP_SAPI`/`php_sapi_name()` return `uwsgi` inside Nextcloud. The audit of
   the shipped Nextcloud 33 core found no branch on that name; the only
@@ -126,12 +133,14 @@ is on PHP's whitelist, so the file cache starts on PHP 8.3. Consequences:
   `Log/File.php`) and the playground's own `wasm` patches (`lib/base.php` occ
   detection, `Config.php` flock bypass, `console.php` owner check), which
   `scripts/build-nextcloud-bundle.sh` now gates on `wasm` **or** `uwsgi`.
-  The flag therefore needs a core bundle built from that script version:
+  The cache therefore needs a core bundle built from that script version:
   with an older bundle `occ` is not recognised as CLI and the install fails.
 - Memory: the cached `.bin` files live in MEMFS (tens of MB for Nextcloud) and
   WASM linear memory grows accordingly. Moodle Playground measured +32…71 MiB
-  for −33 % cold start and 58 → 17 ms PHP per request; Nextcloud has not been
-  measured yet, which is why the default stays off.
+  of WASM memory, yet a lower peak browser RSS with the cache live; Nextcloud
+  was not measured separately. Its bootstrap already raises `memory_limit` to
+  512M (`src/runtime/bootstrap.js`), the ceiling Moodle needed with the cache
+  live (its ADR-0044), so no limit change was needed; the canary asserts it.
 - Persistence: the bytecode is **not** journaled. Until October 2026
   `fs-persistence.js` mirrored `/internal/shared/opcache` into the IndexedDB
   store `nextcloud-opcache:<phpVersion>`; the core is re-extracted into MEMFS

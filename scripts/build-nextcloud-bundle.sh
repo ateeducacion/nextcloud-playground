@@ -73,9 +73,9 @@ apply_patch() {
   echo "  patched $file" >&2
 }
 
-# The playground's PHP reports the SAPI name `wasm`, or `uwsgi` when the
-# experimental OPcache flag is on (`?opcache=1` / config `opcache`; php-src <= 8.4
-# only starts OPcache for whitelisted SAPI names). Keep this list in sync with
+# The playground's PHP reports the SAPI name `uwsgi` while OPcache is on (the
+# default; php-src <= 8.4 only starts OPcache for whitelisted SAPI names) and
+# `wasm` with `?opcache=0`. Keep this list in sync with
 # OPCACHE_SAPI_NAME in src/runtime/php-loader.js. See docs/KNOWN-ISSUES.md#opcache.
 # (a) lib/base.php — treat occ (no REQUEST_URI) as CLI under the playground SAPIs.
 apply_patch "lib/base.php" \

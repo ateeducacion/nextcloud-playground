@@ -278,7 +278,7 @@ async function updateFrame() {
   if (remoteReloadToken > 0) {
     url.searchParams.set("reload", String(remoteReloadToken));
   }
-  // Experimental OPcache flag: pass ?opcache= through to the remote host, which
+  // OPcache flag: pass ?opcache= through to the remote host, which
   // forwards it to the PHP worker. See docs/KNOWN-ISSUES.md#opcache.
   const opcacheParam = new URL(window.location.href).searchParams.get(
     "opcache",
@@ -687,9 +687,7 @@ async function applyConfigAndReset() {
       url.searchParams.delete("opcache");
     }
     window.history.replaceState(window.history.state, "", url);
-    appendLog(
-      `Experimental OPcache ${newOpcache ? "enabled" : "disabled"}; restarting PHP`,
-    );
+    appendLog(`OPcache ${newOpcache ? "enabled" : "disabled"}; restarting PHP`);
   }
   if (runtimeChanged) {
     currentRuntimeId = newRuntimeId;
