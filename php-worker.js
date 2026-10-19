@@ -5,6 +5,7 @@ import {
 import {
   createPhpBridgeChannel,
   createShellChannel,
+  formatErrorDetail,
 } from "./src/shared/protocol.js";
 import {
   bootstrapNextcloud,
@@ -18,7 +19,6 @@ import {
   isEmscriptenNetworkError,
   isFatalWasmError,
   isSafeToReplay,
-  formatErrorDetail,
   createSnapshotManager,
   requestPathname,
 } from "./src/runtime/crash-recovery.js";
