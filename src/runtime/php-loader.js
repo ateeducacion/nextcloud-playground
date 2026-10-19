@@ -31,7 +31,7 @@ const OPCACHE_BLACKLIST = "/internal/eval.php\n";
 // php-src <= 8.4 starts OPcache only for whitelisted SAPI names (apache,
 // fastcgi, cli-server, cgi-fcgi, fpm-fcgi, fpmi-fcgi, apache2handler, litespeed,
 // uwsgi, fuzzer, frankenphp, ngx-php); php-wasm reports `wasm`. With the
-// experimental `opcache` option the runtime reports `uwsgi`: Nextcloud 33 has
+// `opcache` option (on by default) the runtime reports `uwsgi`: Nextcloud 33 has
 // no reference to it, while the cgi*/fpm names take different code paths. The
 // bundle patches in scripts/build-nextcloud-bundle.sh accept this name next to
 // `wasm`; keep both in sync. Same decision as moodle-playground ADR-0039:

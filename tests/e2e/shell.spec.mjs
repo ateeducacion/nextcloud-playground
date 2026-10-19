@@ -166,8 +166,8 @@ test("loads blueprint overrides and exposes runtime settings", async ({
   // The OPcache toggle alone is not destructive: it swaps the warning for the
   // reload note and relabels the button. Reverting clears it like the select.
   const opcache = page.locator("#info-opcache");
-  await expect(opcache).not.toBeChecked();
-  await opcache.check();
+  await expect(opcache).toBeChecked();
+  await opcache.uncheck();
   await expect(page.locator("#config-apply")).toHaveText("Apply & Reload");
   await expect(page.locator("#config-apply")).not.toHaveClass(/danger/);
   await expect(page.locator("#config-reload-note")).toBeVisible();
@@ -180,12 +180,12 @@ test("loads blueprint overrides and exposes runtime settings", async ({
     await expect(page.locator("#config-reload-note")).toBeHidden();
     await page.locator("#info-runtime-version").selectOption(current);
   }
-  await opcache.uncheck();
+  await opcache.check();
   await expect(page.locator("#config-apply")).toBeHidden();
   await expect(page.locator("#config-reload-note")).toBeHidden();
 });
 
-test("enables experimental OPcache from the info panel and restarts PHP with the cache running", async ({
+test("turns OPcache off from the info panel and restarts PHP without the cache", async ({
   page,
 }) => {
   test.setTimeout(420_000);
@@ -210,10 +210,12 @@ test("enables experimental OPcache from the info panel and restarts PHP with the
   };
 
   await page.locator("#panel-toggle-button").click();
-  await expectOpcodeCaching(/Opcode Caching\s*<\/td>\s*<td[^>]*>\s*Disabled/);
+  await expectOpcodeCaching(
+    /Opcode Caching\s*<\/td>\s*<td[^>]*>\s*Up and Running/,
+  );
 
   await page.locator("#info-tab").click();
-  await page.locator("#info-opcache").check();
+  await page.locator("#info-opcache").uncheck();
   await page.locator("#config-apply").click();
 
   // The journal is flushed before the runtime restarts (an unflushed install
@@ -222,16 +224,14 @@ test("enables experimental OPcache from the info panel and restarts PHP with the
   await expect(page.locator("#log-panel")).toContainText(
     "Persistence journal flushed",
   );
-  await expect(page).toHaveURL(/[?&]opcache=1/);
-  await expect(frame).toHaveAttribute("src", /opcache=1/);
+  await expect(page).toHaveURL(/[?&]opcache=0/);
+  await expect(frame).toHaveAttribute("src", /opcache=0/);
   await expect(frame).toHaveAttribute("src", new RegExp(`scope=${scope}`));
   await expect(frame).not.toHaveAttribute("src", /clean=1/);
-  await expect(page.locator("#info-opcache")).toBeChecked();
+  await expect(page.locator("#info-opcache")).not.toBeChecked();
   await expect(page.locator("#config-apply")).toBeHidden();
 
-  await expectOpcodeCaching(
-    /Opcode Caching\s*<\/td>\s*<td[^>]*>\s*Up and Running/,
-  );
+  await expectOpcodeCaching(/Opcode Caching\s*<\/td>\s*<td[^>]*>\s*Disabled/);
 });
 
 test("persists /persist to IndexedDB and reboots from it on reload", async ({

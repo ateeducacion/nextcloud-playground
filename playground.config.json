@@ -11,7 +11,7 @@
   "timezone": "UTC",
   "autologin": true,
   "resetOnVersionMismatch": true,
-  "opcache": false,
+  "opcache": true,
   "admin": { "username": "admin", "password": "admin", "email": "admin@example.com" },
   "defaults": { "phpVersion": "8.3", "nextcloudVersion": "33" },
   "runtimes": [

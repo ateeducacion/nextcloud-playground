@@ -25,8 +25,8 @@ export async function loadPlaygroundConfig() {
   return configPromise;
 }
 
-// Experimental OPcache flag: `?opcache=1|0` overrides playground.config.json's
-// "opcache" (default false). Single decision point for the worker; the shell
+// OPcache flag: `?opcache=1|0` overrides playground.config.json's "opcache"
+// (shipped as true; off when the key is missing). Single decision point for the worker; the shell
 // and remote host only forward the raw parameter. See docs/KNOWN-ISSUES.md#opcache.
 export function isOpcacheEnabled(param, config = {}) {
   if (param !== null && param !== undefined && param !== "") {
