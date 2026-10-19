@@ -1,4 +1,15 @@
-// Policy for the Service Worker's page-asset cache (sw.js). Ported from
+// Service Worker (sw.js) request policy.
+
+// Cross-origin requests go straight to the network: the SW never calls
+// respondWith() for them. Firefox never settles a respondWith(fetch(event.request))
+// pass-through whose response is a cross-origin redirect (raw.githubusercontent.com
+// answers `//owner/...` with a relative 307), which hung blueprint downloads.
+// Ported from moodle-playground ADR-0045 (ateeducacion/moodle-playground#364).
+export function shouldInterceptRequest(url, swOrigin) {
+  return url.origin === swOrigin;
+}
+
+// Page-asset cache policy. Ported from
 // moodle-playground ADR-0034: a path ending in .js/.png is not a static file
 // when PHP serves it through PATH_INFO (WebDAV downloads, previews).
 const STATIC_EXTENSION =

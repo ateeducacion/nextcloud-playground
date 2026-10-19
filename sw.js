@@ -5,7 +5,11 @@ import {
   consumeSandboxCompatibility,
   preserveSandboxCompatibilityRedirect,
 } from "./src/shared/sandboxed-iframes.js";
-import { isCacheableAssetResponse, isStaticAssetPath } from "./src/shared/sw-asset-cache.js";
+import {
+  isCacheableAssetResponse,
+  isStaticAssetPath,
+  shouldInterceptRequest,
+} from "./src/shared/sw-asset-cache.js";
 
 const INTERNAL_PROXY_PATH = "/__playground_proxy__";
 // Cache-first store for the immutable, hash-named runtime assets under /dist/
@@ -583,6 +587,11 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
+  // Cross-origin requests are left to the browser (no respondWith): see
+  // shouldInterceptRequest and moodle-playground ADR-0045.
+  if (!shouldInterceptRequest(new URL(event.request.url), self.location.origin)) {
+    return;
+  }
   // Firefox neuters event.request.body once this handler yields to the event
   // loop, so buffer the body synchronously now — before any await — for the
   // methods that carry one. Reading it later (after the resolveScopedRequest()
@@ -597,9 +606,6 @@ self.addEventListener("fetch", (event) => {
     : event.request.clone().arrayBuffer().catch(() => null);
   event.respondWith((async () => {
     const url = new URL(event.request.url);
-    if (url.origin !== self.location.origin) {
-      return fetch(event.request);
-    }
 
     // Cache-first for the immutable runtime assets under /dist/ (WASM + intl .so),
     // so reloads (and offline) don't re-download tens of MB. Range requests are

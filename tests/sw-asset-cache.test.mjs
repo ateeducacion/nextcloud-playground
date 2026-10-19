@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   isCacheableAssetResponse,
   isStaticAssetPath,
+  shouldInterceptRequest,
 } from "../src/shared/sw-asset-cache.js";
 
 const response = (headers = {}, status = 200) =>
@@ -82,5 +83,32 @@ describe("service worker asset cache policy", () => {
       ),
       false,
     );
+  });
+});
+
+describe("service worker request interception", () => {
+  const origin = "https://ateeducacion.github.io";
+
+  it("intercepts same-origin requests", () => {
+    assert.equal(
+      shouldInterceptRequest(
+        new URL(`${origin}/nextcloud-playground/playground/s/r/index.php`),
+        origin,
+      ),
+      true,
+    );
+  });
+
+  // Firefox never settles a respondWith(fetch(event.request)) pass-through when
+  // the response is a cross-origin redirect (raw.githubusercontent.com answers
+  // `//owner/...` with a relative 307), which hung blueprint downloads.
+  it("leaves cross-origin requests to the browser", () => {
+    for (const url of [
+      "https://raw.githubusercontent.com//HenarLG/Playground_pruebas/refs/heads/main/local_accessibility.zip",
+      "https://github.com/nextcloud/server/archive/refs/heads/master.zip",
+      "http://ateeducacion.github.io/nextcloud-playground/",
+    ]) {
+      assert.equal(shouldInterceptRequest(new URL(url), origin), false, url);
+    }
   });
 });
