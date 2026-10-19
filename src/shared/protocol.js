@@ -42,3 +42,18 @@ export function formatErrorDetail(error) {
     return String(error);
   }
 }
+
+/**
+ * Wrap an error in a minimal HTML page, escaping it so the text never
+ * becomes markup.
+ */
+export function formatErrorHtml(error) {
+  return `<!doctype html><meta charset="utf-8"><pre>${escapeHtml(formatErrorDetail(error))}</pre>`;
+}
+
+/**
+ * Escape text for an HTML element body.
+ */
+export function escapeHtml(text) {
+  return String(text).replaceAll("&", "&amp;").replaceAll("<", "&lt;");
+}
