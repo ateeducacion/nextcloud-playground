@@ -103,29 +103,6 @@ export function requestPathname(request) {
 }
 
 /**
- * Format an error into a human-readable string for display/logging.
- */
-export function formatErrorDetail(error) {
-  if (!error) {
-    return "Unknown error";
-  }
-
-  if (typeof error === "string") {
-    return error;
-  }
-
-  if (error instanceof Error) {
-    return String(error.stack || error.message || error);
-  }
-
-  try {
-    return JSON.stringify(error, null, 2);
-  } catch {
-    return String(error);
-  }
-}
-
-/**
  * Create a state snapshot manager for crash recovery.
  *
  * Before destroying the crashed runtime, read the DB file and addon files

@@ -24,7 +24,7 @@ import {
   hasBlueprintUrlOverride,
   resolveRemoteUrl,
 } from "../shared/paths.js";
-import { createShellChannel } from "../shared/protocol.js";
+import { createShellChannel, formatErrorDetail } from "../shared/protocol.js";
 import {
   createServiceWorkerUnsupportedError,
   isServiceWorkerSupported,
@@ -916,7 +916,7 @@ els.importInput.addEventListener("change", async () => {
     await importPayload(file);
     appendLog(`Imported configuration from ${file.name}`);
   } catch (error) {
-    appendLog(String(error?.stack || error?.message || error), true);
+    appendLog(formatErrorDetail(error), true);
   } finally {
     els.importInput.value = "";
   }
@@ -947,6 +947,6 @@ els.reset.addEventListener("click", () => {
 
 main().catch((error) => {
   setUiLocked(false);
-  appendLog(String(error?.stack || error?.message || error), true);
+  appendLog(formatErrorDetail(error), true);
   captureException(error, { source: "shell-main" });
 });
