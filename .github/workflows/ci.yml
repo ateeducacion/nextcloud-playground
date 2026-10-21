@@ -19,6 +19,9 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # Codecov upload with OIDC (no token secret)
     steps:
       - uses: actions/checkout@v7
 
@@ -57,7 +60,16 @@ jobs:
           node --check sw.js
 
       - name: Run unit tests
-        run: make test
+        run: make coverage
+
+      - name: Upload coverage to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: coverage/lcov.info
+          disable_search: true
+          use_oidc: true
+          fail_ci_if_error: false
 
       - name: Lint
         run: make lint
