@@ -111,7 +111,6 @@ let serviceWorkerReady = null;
 let activeBlueprint;
 let remoteFrameBooted = false;
 let uiLocked = true;
-let remoteReloadToken = 0;
 let pendingCleanBoot = false;
 let pendingPersistenceFlush = null;
 let latestPhpInfoHtml = "";
@@ -271,9 +270,6 @@ async function updateFrame() {
   if (pendingCleanBoot) {
     url.searchParams.set("clean", "1");
   }
-  if (remoteReloadToken > 0) {
-    url.searchParams.set("reload", String(remoteReloadToken));
-  }
   // OPcache flag: pass ?opcache= through to the remote host, which
   // forwards it to the PHP worker. See docs/KNOWN-ISSUES.md#opcache.
   const opcacheParam = new URL(window.location.href).searchParams.get(
@@ -302,7 +298,7 @@ function navigateWithinRuntime(path) {
   }
 
   const previousPath = currentPath;
-  currentPath = path || "/";
+  currentPath = path;
   recordBackEntry(previousPath, currentPath);
   els.address.value = currentPath;
   saveState();
@@ -315,30 +311,6 @@ function navigateWithinRuntime(path) {
     return;
   }
 
-  void updateFrame();
-}
-
-// biome-ignore lint/correctness/noUnusedVariables: called via postToRemote from remote.html
-function refreshWithinRuntime() {
-  if (remoteFrameBooted && postToRemote({ kind: "refresh-site" })) {
-    appendLog(`Refreshing ${currentPath}`);
-    return;
-  }
-
-  void updateFrame();
-}
-
-function _restartRuntime() {
-  if (uiLocked) {
-    return;
-  }
-
-  remoteReloadToken = Date.now();
-  remoteFrameBooted = false;
-  serviceWorkerReady = null;
-  setUiLocked(true);
-  appendLog(`Restarting runtime for ${currentRuntimeId}`);
-  els.frame.src = "about:blank";
   void updateFrame();
 }
 
@@ -455,10 +427,6 @@ function exportBlueprint() {
 }
 
 function updateBlueprintTextarea() {
-  if (!config || !activeBlueprint) {
-    return;
-  }
-
   blueprintEditor.setCode(
     JSON.stringify(exportBlueprintPayload(config, activeBlueprint), null, 2),
   );
@@ -472,7 +440,7 @@ async function importPayload(file) {
 
   if (imported.type === "snapshot") {
     currentRuntimeId = imported.runtimeId || currentRuntimeId;
-    currentPath = imported.path || "/";
+    currentPath = imported.path;
     els.address.value = currentPath;
     saveState({ importedAt: new Date().toISOString() });
     await updateFrame();
@@ -755,8 +723,7 @@ async function main() {
 
   const previous = loadSessionState(scopeId);
   const defaultRuntime = getDefaultRuntime(config);
-  const preferredPath =
-    activeBlueprint?.landingPage || config.landingPath || "/";
+  const preferredPath = activeBlueprint.landingPage;
   const shouldForceCleanBoot = pendingCleanBoot;
   const shouldBypassSavedLogin =
     config.autologin && previous?.path === "/login";
@@ -929,7 +896,7 @@ els.reset.addEventListener("click", () => {
     activeBlueprint = buildDefaultBlueprint(config);
     updateBlueprintTextarea();
   }
-  currentPath = activeBlueprint?.landingPage || config.landingPath || "/";
+  currentPath = activeBlueprint.landingPage;
   backStack.length = 0;
   updateBackButton();
   els.address.value = currentPath;
