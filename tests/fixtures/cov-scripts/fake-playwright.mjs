@@ -38,8 +38,6 @@ function makePage() {
       target = href;
       record({ call: "goto", href, options });
       if (href.includes("goto-fail")) throw new Error("net::ERR_FAILED");
-      // Take measurable time: perf-compare treats a 0 ms boot as a failure.
-      await new Promise((resolve) => setTimeout(resolve, 5));
     },
     async waitForFunction(fn) {
       globalThis.document = fakeDocument;

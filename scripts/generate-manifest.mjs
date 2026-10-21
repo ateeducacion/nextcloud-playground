@@ -27,6 +27,12 @@ function sha256(path) {
 }
 
 const args = parseArgs(process.argv.slice(2));
+if (!args.manifest || !args.bundle) {
+  console.error(
+    "Usage: generate-manifest.mjs --manifest <out.json> --bundle <bundle.tar.zst> [--channel <c>] [--release <r>] [--sourceRepository <repo>] [--sourceBranch <b>] [--sourceCommit <sha>] [--fileCount <n>]",
+  );
+  process.exit(1);
+}
 const manifestPath = resolve(args.manifest);
 const bundlePath = resolve(args.bundle);
 const bundleStat = statSync(bundlePath);

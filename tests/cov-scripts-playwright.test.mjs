@@ -8,8 +8,10 @@ import { fileURLToPath } from "node:url";
 import {
   buildBlueprintData,
   formatDelta,
+  formatStats,
   parseArgs,
   stats,
+  succeeded,
 } from "../scripts/perf-compare.mjs";
 
 // perf-compare.mjs and generate-og-image.mjs drive Playwright. The CLI tests
@@ -100,7 +102,6 @@ describe("perf-compare parseArgs", () => {
       "--label-candidate",
       "L2",
       "-h",
-      "--help",
     ]);
     assert.deepEqual(
       [
@@ -112,8 +113,17 @@ describe("perf-compare parseArgs", () => {
         out.headed,
         out.help,
       ],
-      ["A", "B", 2, "L1", "L2", true, true],
+      ["A", "B", 2, "L1", "L2", false, true],
     );
+  });
+
+  it("keeps every = after the first in --flag=value", () => {
+    const out = parseArgs([
+      "--base=https://a.test/?x=1&y=2",
+      "--label-candidate=a=b",
+    ]);
+    assert.equal(out.base, "https://a.test/?x=1&y=2");
+    assert.equal(out.labelCandidate, "a=b");
   });
 
   it("accepts the prod/preview/pr/before/after aliases", () => {
@@ -134,13 +144,15 @@ describe("perf-compare parseArgs", () => {
     }
   });
 
-  it("keeps the default iterations for non-numeric values", () => {
-    assert.equal(parseArgs(["--iterations=lots"]).iterations, 3);
-    assert.equal(parseArgs(["--iterations", "x"]).iterations, 3);
+  it("passes the parsed iterations through for main() to validate", () => {
+    assert.equal(parseArgs(["--iterations=0"]).iterations, 0);
+    assert.equal(parseArgs(["--iterations", "-2"]).iterations, -2);
+    assert.ok(Number.isNaN(parseArgs(["--iterations=lots"]).iterations));
   });
 
   it("ignores a valueless trailing flag", () => {
     assert.equal(parseArgs(["--label-candidate"]).labelCandidate, "candidate");
+    assert.deepEqual(parseArgs(["stray", "--unknown=1"]), parseArgs([]));
   });
 });
 
@@ -155,6 +167,20 @@ describe("perf-compare helpers", () => {
       p95: 300,
     });
     assert.deepEqual(stats([undefined]), { count: 0 });
+  });
+
+  it("prints n/a stats when there are no samples", () => {
+    assert.equal(formatStats(stats([])), "no samples");
+    assert.equal(
+      formatStats(stats([100, 300])),
+      "avg=200 p50=300 p95=300 (min 100 / max 300)",
+    );
+  });
+
+  it("counts a 0 ms boot as a success, an error or missing time as a failure", () => {
+    assert.equal(succeeded({ error: null, timeToRuntimeReady: 0 }), true);
+    assert.equal(succeeded({ error: "x", timeToRuntimeReady: 10 }), false);
+    assert.equal(succeeded({ error: null }), false);
   });
 
   it("formats signed deltas with percentages", () => {
@@ -225,6 +251,10 @@ describe("perf-compare CLI", () => {
     assert.match(stdout, /Success rate: prod 1\/1, candidate 1\/1/);
     const json = JSON.parse(stdout.slice(stdout.indexOf("=== JSON ===") + 12));
     assert.equal(json.iterations, 1);
+    assert.deepEqual(json.targets, {
+      baseline: { url: "https://base.test/?x", label: "prod" },
+      candidate: { url: "https://no-login.test/", label: "candidate" },
+    });
     assert.equal(json.forceClean, true);
     assert.equal(json.raw.baseline[0].addressBar, "/index.php/login");
     assert.deepEqual(json.raw.baseline[0].perf, {
@@ -248,7 +278,8 @@ describe("perf-compare CLI", () => {
         "https://goto-fail.test/",
         "--pr",
         "https://ok.test/",
-        "--iterations=-2",
+        "--iterations",
+        "1",
         "--no-clean",
         "--headed",
       ],
@@ -266,7 +297,21 @@ describe("perf-compare CLI", () => {
       /runtimeReady=ERR \| login=ERR {2}ERR:net::ERR_FAILED/,
     );
     assert.match(stdout, /Success rate: baseline 0\/1, candidate 1\/1/);
+    assert.match(stdout, /timeToRuntimeReady: {5}no samples/);
+    assert.doesNotMatch(stdout, /undefined/);
     assert.doesNotMatch(stdout, /=== JSON ===/);
+  });
+
+  it("rejects iterations that are not a positive integer", async () => {
+    for (const value of ["0", "-2", "lots"]) {
+      const { code, stderr, calls } = await runScript(
+        "scripts/perf-compare.mjs",
+        ["--base=a", "--candidate=b", `--iterations=${value}`],
+      );
+      assert.equal(code, 1, value);
+      assert.match(stderr, /--iterations must be a positive integer/);
+      assert.equal(calls.length, 0);
+    }
   });
 });
 
