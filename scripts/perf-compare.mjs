@@ -64,12 +64,12 @@
  *     --prod, --preview, --pr, --before, --after
  *
  *   --iterations=N         Boots per deployment (default: 3). Keep small (boots are expensive).
- *   --headed, -h           Run browsers visibly.
+ *   --headed               Run browsers visibly.
  *   --no-clean             Do not force a unique blueprint. Measures warm boots.
  *   --json                 Print a JSON summary at the end (in addition to human output).
  *   --label-base=NAME      Label to use for the baseline in reports.
  *   --label-candidate=NAME Label to use for the candidate in reports.
- *   --help                 Show this help and exit.
+ *   --help, -h             Show this help and exit.
  *
  * Notes & caveats
  * ---------------
@@ -103,12 +103,12 @@ Options:
   --base=<url>             Baseline (e.g. https://nextcloud-playground.pages.dev/)
   --candidate=<url>        Candidate / PR / local (e.g. http://localhost:8085 or preview URL)
   --iterations=N           Number of iterations per deployment (default 3)
-  --headed, -h             Run with visible browser
+  --headed                 Run with visible browser
   --no-clean               Measure warm (cached) boots instead of clean installs
   --json                   Emit JSON summary at the end
   --label-base=NAME        Human label for baseline
   --label-candidate=NAME   Human label for candidate
-  --help                   Show this message
+  --help, -h               Show this message
 
 Examples:
   node scripts/perf-compare.mjs \\
@@ -122,6 +122,20 @@ Examples:
     --no-clean --headed
 `);
 }
+
+// Flags that take a value, as --flag=value or --flag value; aliases share a field.
+const VALUE_FLAGS = {
+  base: "base",
+  prod: "base",
+  before: "base",
+  candidate: "candidate",
+  preview: "candidate",
+  pr: "candidate",
+  after: "candidate",
+  iterations: "iterations",
+  "label-base": "labelBase",
+  "label-candidate": "labelCandidate",
+};
 
 export function parseArgs(args = process.argv.slice(2)) {
   const out = {
@@ -139,11 +153,11 @@ export function parseArgs(args = process.argv.slice(2)) {
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
 
-    if (a === "--help" || a === "-help") {
+    if (a === "--help" || a === "-help" || a === "-h") {
       out.help = true;
       continue;
     }
-    if (a === "--headed" || a === "-h") {
+    if (a === "--headed") {
       out.headed = true;
       continue;
     }
@@ -156,95 +170,16 @@ export function parseArgs(args = process.argv.slice(2)) {
       continue;
     }
 
-    if (a.startsWith("--iterations=")) {
-      out.iterations = parseInt(a.split("=")[1], 10) || out.iterations;
-      continue;
-    }
-    if (a === "--iterations" && args[i + 1]) {
-      out.iterations = parseInt(args[++i], 10) || out.iterations;
-      continue;
-    }
-
-    if (a.startsWith("--base=")) {
-      out.base = a.split("=")[1];
-      continue;
-    }
-    if (a === "--base" && args[i + 1]) {
-      out.base = args[++i];
-      continue;
-    }
-
-    if (a.startsWith("--candidate=")) {
-      out.candidate = a.split("=")[1];
-      continue;
-    }
-    if (a === "--candidate" && args[i + 1]) {
-      out.candidate = args[++i];
-      continue;
-    }
-
-    // Common aliases
-    if (a.startsWith("--prod=")) {
-      out.base = a.split("=")[1];
-      continue;
-    }
-    if (a === "--prod" && args[i + 1]) {
-      out.base = args[++i];
-      continue;
-    }
-
-    if (a.startsWith("--preview=")) {
-      out.candidate = a.split("=")[1];
-      continue;
-    }
-    if (a === "--preview" && args[i + 1]) {
-      out.candidate = args[++i];
-      continue;
-    }
-
-    if (a.startsWith("--pr=")) {
-      out.candidate = a.split("=")[1];
-      continue;
-    }
-    if (a === "--pr" && args[i + 1]) {
-      out.candidate = args[++i];
-      continue;
-    }
-
-    if (a.startsWith("--before=")) {
-      out.base = a.split("=")[1];
-      continue;
-    }
-    if (a === "--before" && args[i + 1]) {
-      out.base = args[++i];
-      continue;
-    }
-
-    if (a.startsWith("--after=")) {
-      out.candidate = a.split("=")[1];
-      continue;
-    }
-    if (a === "--after" && args[i + 1]) {
-      out.candidate = args[++i];
-      continue;
-    }
-
-    if (a.startsWith("--label-base=")) {
-      out.labelBase = a.split("=")[1];
-      continue;
-    }
-    if (a === "--label-base" && args[i + 1]) {
-      out.labelBase = args[++i];
-      continue;
-    }
-
-    if (a.startsWith("--label-candidate=")) {
-      out.labelCandidate = a.split("=")[1];
-      continue;
-    }
-    if (a === "--label-candidate" && args[i + 1]) {
-      out.labelCandidate = args[++i];
-    }
+    const eq = a.indexOf("=");
+    const field =
+      a.startsWith("--") && VALUE_FLAGS[a.slice(2, eq === -1 ? undefined : eq)];
+    if (!field) continue;
+    let value;
+    if (eq !== -1) value = a.slice(eq + 1);
+    else if (args[i + 1]) value = args[++i];
+    else continue;
+    // main() rejects anything that is not a positive integer.
+    out[field] = field === "iterations" ? Number.parseInt(value, 10) : value;
   }
 
   return out;
@@ -354,6 +289,17 @@ export function stats(values) {
   };
 }
 
+export function formatStats(s) {
+  return s.count
+    ? `avg=${s.avg} p50=${s.p50} p95=${s.p95} (min ${s.min} / max ${s.max})`
+    : "no samples";
+}
+
+// A 0 ms boot is still a boot: only an error or a missing time is a failure.
+export function succeeded(row) {
+  return !row.error && row.timeToRuntimeReady != null;
+}
+
 export function formatDelta(baseline, candidate) {
   if (typeof baseline !== "number" || typeof candidate !== "number")
     return "n/a";
@@ -442,15 +388,9 @@ function printStats(label, rows) {
   const dom = stats(rows.map((r) => r.timeToDomContentLoaded));
 
   console.log(`\n=== ${label} (n=${ready.count}) ===`);
-  console.log(
-    `  timeToDomContentLoaded: avg=${dom.avg} p50=${dom.p50} p95=${dom.p95} (min ${dom.min} / max ${dom.max})`,
-  );
-  console.log(
-    `  timeToRuntimeReady:     avg=${ready.avg} p50=${ready.p50} p95=${ready.p95} (min ${ready.min} / max ${ready.max})`,
-  );
-  console.log(
-    `  timeToLoginForm:        avg=${login.avg} p50=${login.p50} p95=${login.p95} (min ${login.min} / max ${login.max})`,
-  );
+  console.log(`  timeToDomContentLoaded: ${formatStats(dom)}`);
+  console.log(`  timeToRuntimeReady:     ${formatStats(ready)}`);
+  console.log(`  timeToLoginForm:        ${formatStats(login)}`);
   return { ready, login, dom };
 }
 
@@ -486,7 +426,10 @@ async function main() {
     process.exit(1);
   }
 
-  if (args.iterations < 1) args.iterations = 1;
+  if (!Number.isInteger(args.iterations) || args.iterations < 1) {
+    console.error("Error: --iterations must be a positive integer.");
+    process.exit(1);
+  }
 
   console.log(`Nextcloud Playground Performance Comparison`);
   console.log(`  Baseline  : ${args.base}   (${args.labelBase})`);
@@ -541,12 +484,8 @@ async function main() {
     candidateStats,
   );
 
-  const baselineOk = baselineRows.filter(
-    (r) => !r.error && r.timeToRuntimeReady,
-  ).length;
-  const candidateOk = candidateRows.filter(
-    (r) => !r.error && r.timeToRuntimeReady,
-  ).length;
+  const baselineOk = baselineRows.filter(succeeded).length;
+  const candidateOk = candidateRows.filter(succeeded).length;
   console.log(
     `\n  Success rate: ${args.labelBase} ${baselineOk}/${args.iterations}, ${args.labelCandidate} ${candidateOk}/${args.iterations}`,
   );
@@ -566,7 +505,10 @@ async function main() {
   if (args.json) {
     const payload = {
       timestamp: new Date().toISOString(),
-      base: { url: args.base, label: args.labelBase },
+      targets: {
+        baseline: { url: args.base, label: args.labelBase },
+        candidate: { url: args.candidate, label: args.labelCandidate },
+      },
       iterations: args.iterations,
       forceClean: args.forceClean,
       baseline: baselineStats,

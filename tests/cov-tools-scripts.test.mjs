@@ -118,6 +118,15 @@ describe("scripts/generate-manifest.mjs", () => {
     assert.equal(json.bundle.path, "b.tar.zst");
   });
 
+  it("prints usage without --manifest or --bundle", () => {
+    for (const args of [[], ["--manifest", join(tmp, "only.json")]]) {
+      const run = runScript("scripts/generate-manifest.mjs", { args });
+      assert.equal(run.status, 1);
+      assert.match(run.stderr, /^Usage: generate-manifest\.mjs --manifest/);
+      assert.doesNotMatch(run.stderr, /TypeError/);
+    }
+  });
+
   it("rejects a flag without a value", () => {
     const run = runScript("scripts/generate-manifest.mjs", {
       args: ["--manifest", "--bundle", "x"],
