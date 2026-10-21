@@ -98,13 +98,14 @@ function buildLoadingResponse(message, status = 503) {
   );
 }
 
+// Returns null after restarting, or the user-facing reason it declined.
 function resetRuntime(reason) {
   if (reactiveRestartCount >= MAX_REACTIVE_RESTARTS) {
     postShell({
       kind: "error",
       detail: `[runtime] restart limit reached (${reactiveRestartCount}/${MAX_REACTIVE_RESTARTS}), not restarting. Reason: ${reason}`,
     });
-    return false;
+    return "Runtime restart limit reached.";
   }
 
   if (requestCount < MIN_REQUESTS_BEFORE_RESTART) {
@@ -112,7 +113,7 @@ function resetRuntime(reason) {
       kind: "error",
       detail: `[runtime] crash after only ${requestCount} requests (minimum ${MIN_REQUESTS_BEFORE_RESTART}), likely a fundamental bug — not restarting. Reason: ${reason}`,
     });
-    return false;
+    return `Runtime crashed too early to restart (after ${requestCount} of ${MIN_REQUESTS_BEFORE_RESTART} requests).`;
   }
 
   reactiveRestartCount += 1;
@@ -127,7 +128,7 @@ function resetRuntime(reason) {
     progress: 0.01,
   });
 
-  return true;
+  return null;
 }
 
 async function getRuntimeState() {
@@ -210,21 +211,15 @@ async function getRuntimeState() {
       publishProgress("Bootstrapping Nextcloud", detail, progress);
     };
 
-    let bootstrapState;
-    try {
-      bootstrapState = await bootstrapNextcloud({
-        config,
-        blueprint: activeBlueprint,
-        clean: forceCleanBoot,
-        corePrefetch,
-        php,
-        publish,
-        runtimeId,
-      });
-    } catch (error) {
-      runtimeStatePromise = null;
-      throw error;
-    }
+    const bootstrapState = await bootstrapNextcloud({
+      config,
+      blueprint: activeBlueprint,
+      clean: forceCleanBoot,
+      corePrefetch,
+      php,
+      publish,
+      runtimeId,
+    });
 
     postShell({
       kind: "ready",
@@ -241,7 +236,16 @@ async function getRuntimeState() {
     return readyState;
   })();
 
-  return runtimeStatePromise;
+  // Any failed boot step (config, manifest, PHP refresh, snapshot restore,
+  // bootstrap) must not stay cached: the next request boots again.
+  const boot = runtimeStatePromise;
+  boot.catch(() => {
+    if (runtimeStatePromise === boot) {
+      runtimeStatePromise = null;
+    }
+  });
+
+  return boot;
 }
 
 async function executePhpRequest(state, serializedRequest) {
@@ -367,7 +371,8 @@ function installBridgeListener() {
           });
         }
 
-        const didReset = resetRuntime(`fatal WASM error: ${error.message}`);
+        const declined = resetRuntime(`fatal WASM error: ${error.message}`);
+        const didReset = declined === null;
         const canReplay = isSafeToReplay(data.request);
 
         if (isRetry || !canReplay || !didReset) {
@@ -377,7 +382,7 @@ function installBridgeListener() {
             ? `Runtime crashed again on retry. Manual reload required.\n\n${detail}`
             : !canReplay
               ? `Runtime restarting after crash. Non-idempotent request was not retried.\n\n${detail}`
-              : `Runtime restart limit reached.\n\n${detail}`;
+              : `${declined}\n\n${detail}`;
           await respondError(data.id, message, status);
           await bootAfterUnreplayedCrash({
             didReset,
