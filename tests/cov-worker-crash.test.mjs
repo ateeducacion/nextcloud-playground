@@ -47,7 +47,7 @@ it("does not restart a runtime that crashes before the minimum request count", a
     url: "http://localhost/apps/weather?token=secret",
   });
   assert.equal(response.status, 500);
-  assert.match(response.text, /Runtime restart limit reached\./);
+  assert.match(response.text, /Runtime crashed too early to restart/);
 
   const network = env.message("wasm-network-error");
   assert.equal(network.path, "/apps/weather");
