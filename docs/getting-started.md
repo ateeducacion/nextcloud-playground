@@ -23,7 +23,7 @@ hard-refreshing the tab discards changes (see [KNOWN-ISSUES](KNOWN-ISSUES.md)).
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 24+
 - npm
 - Git
 

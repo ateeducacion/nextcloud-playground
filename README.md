@@ -51,7 +51,7 @@ Then open <http://localhost:8085>.
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 24+
 - npm
 - PHP 8.3 (used by the build to read the bundled release version)
 - Python 3 (for the docs site, optional)
