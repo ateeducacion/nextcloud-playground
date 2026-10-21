@@ -65,7 +65,9 @@ function emit(scopeId, message) {
     setRemoteProgress(message.detail, message.progress);
   }
   if (message?.kind === "error") {
-    setRemoteProgress(message.detail);
+    // The boot card is the only surface the user sees when the runtime never
+    // comes up: show the one-line `summary`, not a `detail` carrying the stack.
+    setRemoteProgress(message.summary || message.detail);
   }
 
   const channel = new BroadcastChannel(createShellChannel(scopeId, instanceId));
@@ -207,13 +209,11 @@ function navigateFrame(scopeId, runtimeId, path, { reload = false } = {}) {
 function bindFrameNavigation(scopeId, runtimeId) {
   frameEl.addEventListener("load", () => {
     let path = activePath;
+    let href = null;
     try {
-      if (frameEl.contentWindow?.location?.href) {
-        path = extractUnscopedPath(
-          frameEl.contentWindow.location.href,
-          scopeId,
-          runtimeId,
-        );
+      href = frameEl.contentWindow?.location?.href || null;
+      if (href) {
+        path = extractUnscopedPath(href, scopeId, runtimeId);
       }
     } catch {
       // Ignore transient about:blank/cross-context timing during iframe swaps.
@@ -229,8 +229,7 @@ function bindFrameNavigation(scopeId, runtimeId) {
     emitNavigation(
       scopeId,
       runtimeId,
-      frameEl.contentWindow?.location?.href ||
-        buildEntryUrl(scopeId, runtimeId, path).toString(),
+      href || buildEntryUrl(scopeId, runtimeId, path).toString(),
     );
   });
 }
@@ -420,9 +419,6 @@ bootstrapTask.catch((error) => {
   const url = new URL(window.location.href);
   const scopeId = url.searchParams.get("scope");
   setOverlayVisible(true);
-  // Show the human-readable message on the boot card, not the stack: this is
-  // the only surface the user sees when the runtime never comes up.
-  setRemoteProgress(String(error?.message || error));
   emit(scopeId, {
     kind: "error",
     detail: [String(error?.message || error), error?.stack]

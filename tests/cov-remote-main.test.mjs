@@ -480,7 +480,10 @@ test("remote host reports iframe loads as ready + navigation, unscoping the path
   remote.frame.dispatchEvent(new remote.window.Event("load"));
   assert.equal(remote.messages("navigate").at(-1).message.path, "/");
 
-  // A cross-context access error keeps the last known path.
+  // A cross-context access error keeps the last known path, for the ready
+  // message and for the navigate message that follows it (#126).
+  href = `${ORIGIN}/app/playground/s1/php82/apps/files`;
+  remote.frame.dispatchEvent(new remote.window.Event("load"));
   Object.defineProperty(remote.frame, "contentWindow", {
     get: () => ({
       get location() {
@@ -489,17 +492,16 @@ test("remote host reports iframe loads as ready + navigation, unscoping the path
     }),
     configurable: true,
   });
-  // The ready message still goes out; the unguarded navigation read after it
-  // throws inside the listener, so no navigate message follows.
   const navigations = remote.messages("navigate").length;
   const readies = remote.messages("ready").length;
   const listenerErrors = [];
   remote.window.console.error = (...args) => listenerErrors.push(args);
   remote.frame.dispatchEvent(new remote.window.Event("load"));
+  assert.deepEqual(listenerErrors, []);
   assert.equal(remote.messages("ready").length, readies + 1);
-  assert.equal(remote.messages("ready").at(-1).message.path, "/");
-  assert.equal(remote.messages("navigate").length, navigations);
-  assert.match(String(listenerErrors.flat().join(" ")), /SecurityError/u);
+  assert.equal(remote.messages("ready").at(-1).message.path, "/apps/files");
+  assert.equal(remote.messages("navigate").length, navigations + 1);
+  assert.equal(remote.messages("navigate").at(-1).message.path, "/apps/files");
 
   // No content window: fall back to the scoped entry URL.
   Object.defineProperty(remote.frame, "contentWindow", {
@@ -507,8 +509,8 @@ test("remote host reports iframe loads as ready + navigation, unscoping the path
     configurable: true,
   });
   remote.frame.dispatchEvent(new remote.window.Event("load"));
-  assert.equal(remote.messages("ready").at(-1).message.path, "/");
-  assert.equal(remote.messages("navigate").at(-1).message.path, "/");
+  assert.equal(remote.messages("ready").at(-1).message.path, "/apps/files");
+  assert.equal(remote.messages("navigate").at(-1).message.path, "/apps/files");
 });
 
 test("remote host surfaces PHP worker error events", async () => {
@@ -609,8 +611,9 @@ test("remote host tags a rejected Service Worker registration", async () => {
     },
   });
   const error = await until(() => remote.messages("error")[0], "error");
-  // The boot card ends up showing the stack too (see the error emit).
-  assert.match(remote.status(), /^SecurityError: bad scope\n/u);
+  // The boot card shows the message; the stack only goes to the shell log (#126).
+  assert.equal(remote.status(), "SecurityError: bad scope");
+  assert.match(error.message.detail, /^SecurityError: bad scope\n.*\n\s+at /u);
   assert.deepEqual(error.message.monitoring, {
     level: "error",
     source: "service-worker-registration",
