@@ -1,5 +1,7 @@
 # Nextcloud Playground
 
+[![Coverage](https://codecov.io/gh/ateeducacion/nextcloud-playground/graph/badge.svg)](https://codecov.io/gh/ateeducacion/nextcloud-playground)
+
 > Run a full Nextcloud server in the browser — no server required.
 
 [**Live demo**](https://ateeducacion.github.io/nextcloud-playground/) · [Documentation](docs/) · [Blueprints](docs/blueprint-json.md)

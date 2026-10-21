@@ -3,7 +3,7 @@ NC_MAJOR ?= 33
 NC_RELEASE ?= latest-33
 
 .PHONY: help up deps build-version prepare bundle bundle-all bundle-30 bundle-31 bundle-32 bundle-33 \
-        serve test test-e2e lint format clean reset perf-compare
+        serve test coverage test-e2e lint format clean reset perf-compare
 
 help:
 	@printf '%s\n' 'Nextcloud Playground Make targets:' '' \
@@ -14,6 +14,7 @@ help:
 	  '  make serve       Start the local dev server' \
 	  '  make up          Run bundle + serve' \
 	  '  make test        Run unit tests' \
+	  '  make coverage    Run unit tests with lcov coverage' \
 	  '  make test-e2e    Run Playwright browser tests' \
 	  '  make lint        Run Biome linter' \
 	  '  make format      Auto-fix lint and formatting issues' \
@@ -59,6 +60,13 @@ bundle-all: prepare bundle-30 bundle-31 bundle-32 bundle-33
 # (and the modules they import) expect it to exist.
 test: build-version
 	node --test tests/*.test.mjs
+
+coverage: build-version
+	mkdir -p coverage
+	node --test --experimental-test-coverage \
+		--test-reporter=spec --test-reporter-destination=stdout \
+		--test-reporter=lcov --test-reporter-destination=coverage/lcov.info \
+		tests/*.test.mjs
 
 test-e2e:
 	npm run test:e2e
