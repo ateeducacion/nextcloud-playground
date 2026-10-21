@@ -153,15 +153,22 @@ function change(element) {
 
 // Must run first: loadPlaygroundConfig() memoizes only a successful fetch.
 describe("config load failure", () => {
-  it("unlocks the UI and logs the error", async () => {
+  it("keeps the UI locked, shows the error and never loads the remote host", async () => {
     const shell = await boot({
       configResponse: () => new Response("nope", { status: 500 }),
       waitForFrame: false,
     });
     await until(() => shell.logs().includes("Unable to load"), "error log");
     assert.match(shell.logs(), /Unable to load playground config: 500/u);
-    assert.equal(shell.$("#address-input").disabled, false);
     assert.ok(shell.$("#log-panel .error"));
+    // #127: no runtime is known, so the runtime controls stay locked and the
+    // reason is on screen instead of an empty frame.
+    assert.equal(
+      shell.$("#blocking-error").textContent,
+      "Unable to load playground config: 500",
+    );
+    assert.equal(shell.$("#address-input").disabled, true);
+    assert.equal(shell.$("#reset-button").disabled, true);
 
     // Without a config there is nothing to ask the worker for.
     shell.click("#phpinfo-tab");
@@ -171,11 +178,45 @@ describe("config load failure", () => {
     );
     assert.equal(shell.posted.length, 0);
 
-    // Navigating anyway skips Service Worker registration (no runtime config).
+    // Home and Refresh must not point the frame at remote.html?runtime=undefined.
     shell.click("#home-button");
-    await until(() => shell.frame.getAttribute("src"), "frame src");
+    shell.click("#refresh-button");
+    await tick();
+    assert.equal(shell.frame.getAttribute("src"), null);
     assert.equal(shell.registered.length, 0);
-    assert.equal(shell.frameUrl().searchParams.get("path"), "/");
+  });
+});
+
+describe("non-Error boot failure", () => {
+  it("shows the rejection value itself", async () => {
+    const shell = await boot({
+      configResponse: () => {
+        throw "offline";
+      },
+      waitForFrame: false,
+    });
+    await until(() => shell.$("#blocking-error"), "blocking error");
+    assert.equal(shell.$("#blocking-error").textContent, "offline");
+    assert.equal(shell.$("#address-input").disabled, true);
+  });
+});
+
+describe("blueprint load failure", () => {
+  it("keeps the UI locked too: the runtime is still unknown", async () => {
+    const shell = await boot({
+      href: "http://localhost:8080/?blueprint-url=https://bp.test/missing.json",
+      waitForFrame: false,
+    });
+    await until(() => shell.$("#blocking-error"), "blocking error");
+    assert.match(
+      shell.$("#blocking-error").textContent,
+      /unexpected fetch https:\/\/bp\.test\/missing\.json/u,
+    );
+    assert.equal(shell.$("#address-input").disabled, true);
+    shell.click("#reset-button");
+    shell.click("#home-button");
+    await tick();
+    assert.equal(shell.frame.getAttribute("src"), null);
   });
 });
 
