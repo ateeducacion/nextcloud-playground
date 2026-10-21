@@ -911,6 +911,27 @@ test("a subpath deployment keeps the app base in every rewritten URL", async () 
   );
 });
 
+test("a subpath deployment ignores a remote.html outside the app base (moodle-playground#379)", async () => {
+  const sw = await loadSw({
+    scope: `${ORIGIN}/app/`,
+    config: { addonProxyUrl: "https://proxy.test/p" },
+  });
+  sw.network.set("/p", () => new Response("proxied"));
+  sw.network.set("/evil", () => new Response("evil"));
+  // Same origin, but the origin root, not /app/remote.html.
+  sw.message(
+    {
+      kind: "configure-service-worker",
+      addonProxyUrl: "https://proxy.test/evil",
+    },
+    { url: `${ORIGIN}/remote.html` },
+  );
+  assert.equal(
+    await (await sw.request("/app/__playground_proxy__")).text(),
+    "proxied",
+  );
+});
+
 test("a scope without a trailing slash is the app base path", async () => {
   const sw = await loadSw({ scope: `${ORIGIN}/app` });
   await sw.request("/app/playground/s1/php83/index.php");
