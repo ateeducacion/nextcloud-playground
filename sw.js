@@ -536,9 +536,13 @@ function forwardToPhpWorker({ serializedRequest, runtimeId, scopeId }) {
 // Only the remote host page may reconfigure the worker. Nextcloud pages and any
 // HTML they render (e.g. files served from the app) share this origin, so
 // without this check they could reroute addon downloads through their own proxy.
+// Compare against the full path: stripAppBasePath() leaves paths outside a
+// subpath deployment unchanged, which would also trust the origin-root
+// /remote.html of another site on the same origin
+// (ateeducacion/moodle-playground#379).
 function isRemoteHostClient(source) {
   try {
-    return stripAppBasePath(new URL(source?.url).pathname) === "/remote.html";
+    return new URL(source?.url).pathname === withAppBasePath("/remote.html");
   } catch {
     return false;
   }
