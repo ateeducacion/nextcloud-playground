@@ -3,12 +3,12 @@
 import { readdirSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve as resolvePath } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
 
 const require = createRequire(import.meta.url);
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-const repoDir = resolvePath(scriptDir, "..");
+const defaultRepoDir = resolvePath(scriptDir, "..");
 
 // Only bundle the PHP runtime versions this playground actually offers. The
 // monolithic @php-wasm/web's loadWebRuntime() switch dynamically imports every
@@ -27,45 +27,52 @@ const ALL_PHP_VERSIONS = [
   "8-4",
   "8-5",
 ];
-const offeredPhp = [
-  ...new Set(
-    (
-      JSON.parse(
-        readFileSync(resolvePath(repoDir, "playground.config.json"), "utf8"),
-      ).runtimes || []
-    )
-      .map((r) => r.phpVersion)
-      .filter(Boolean),
-  ),
-];
-const keepVersions = offeredPhp.map((v) => v.replace(".", "-"));
-const dropVersions = ALL_PHP_VERSIONS.filter((v) => !keepVersions.includes(v));
+export function phpVersionsToBundle(repoDir) {
+  const offeredPhp = [
+    ...new Set(
+      (
+        JSON.parse(
+          readFileSync(resolvePath(repoDir, "playground.config.json"), "utf8"),
+        ).runtimes || []
+      )
+        .map((r) => r.phpVersion)
+        .filter(Boolean),
+    ),
+  ];
+  const keepVersions = offeredPhp.map((v) => v.replace(".", "-"));
+  const dropVersions = ALL_PHP_VERSIONS.filter(
+    (v) => !keepVersions.includes(v),
+  );
+  return { keepVersions, dropVersions };
+}
 
-const stripUnusedPhpVersions = {
-  name: "strip-unused-php-versions",
-  setup(api) {
-    if (dropVersions.length === 0) return;
-    const filter = new RegExp(
-      `@php-wasm/(?:web|node)-(?:${dropVersions.join("|")})(?:/|$)`,
-    );
-    api.onResolve({ filter }, (args) => ({
-      path: args.path,
-      namespace: "phpver-stub",
-    }));
-    api.onLoad({ filter: /.*/, namespace: "phpver-stub" }, (args) => ({
-      loader: "js",
-      contents:
-        `export function getPHPLoaderModule(){throw new Error("PHP runtime not bundled in this build: ${args.path}");}\n` +
-        `export function getIntlExtensionPath(){throw new Error("PHP intl not bundled in this build: ${args.path}");}\n`,
-    }));
-  },
-};
+export function stripUnusedPhpVersions(dropVersions) {
+  return {
+    name: "strip-unused-php-versions",
+    setup(api) {
+      if (dropVersions.length === 0) return;
+      const filter = new RegExp(
+        `@php-wasm/(?:web|node)-(?:${dropVersions.join("|")})(?:/|$)`,
+      );
+      api.onResolve({ filter }, (args) => ({
+        path: args.path,
+        namespace: "phpver-stub",
+      }));
+      api.onLoad({ filter: /.*/, namespace: "phpver-stub" }, (args) => ({
+        loader: "js",
+        contents:
+          `export function getPHPLoaderModule(){throw new Error("PHP runtime not bundled in this build: ${args.path}");}\n` +
+          `export function getIntlExtensionPath(){throw new Error("PHP intl not bundled in this build: ${args.path}");}\n`,
+      }));
+    },
+  };
+}
 
 const phpWasmWebPackage = JSON.parse(
   readFileSync(require.resolve("@php-wasm/web/package.json"), "utf8"),
 );
 const ICU_DATA_URL = `https://unpkg.com/@php-wasm/web@${phpWasmWebPackage.version}/shared/icu.dat`;
-const phpWasmIcuDataPlugin = {
+export const phpWasmIcuDataPlugin = {
   name: "php-wasm-icu-data",
   setup(b) {
     b.onResolve({ filter: /(^|\/)(?:intl\/shared|shared)\/icu\.dat$/ }, () => ({
@@ -83,7 +90,7 @@ const phpWasmIcuDataPlugin = {
 // `new URL("./x.wasm", import.meta.url)`, which esbuild leaves untouched, so the
 // binary never reaches dist/ and the worker fetches a 404. Turn it back into an
 // import so the ".wasm" file loader below emits it.
-const phpWasmUrlToImport = {
+export const phpWasmUrlToImport = {
   name: "php-wasm-url-to-import",
   setup(b) {
     b.onLoad(
@@ -100,87 +107,107 @@ const phpWasmUrlToImport = {
   },
 };
 
-rmSync(resolvePath(repoDir, "dist"), { force: true, recursive: true });
+// Bundle php-worker.js into <repoDir>/dist and sw.js into <repoDir>/sw.bundle.js.
+export async function buildWorkers(repoDir = defaultRepoDir) {
+  const { keepVersions, dropVersions } = phpVersionsToBundle(repoDir);
 
-await build({
-  entryPoints: ["php-worker.js"],
-  bundle: true,
-  outdir: "dist",
-  entryNames: "php-worker.bundle",
-  assetNames: "[name]-[hash]",
-  format: "esm",
-  platform: "browser",
-  target: "es2022",
-  sourcemap: true,
-  banner: {
-    js: `const __APP_ROOT__ = new URL("../", import.meta.url).href;`,
-  },
-  plugins: [phpWasmIcuDataPlugin, stripUnusedPhpVersions, phpWasmUrlToImport],
-  loader: {
-    ".wasm": "file",
-    ".so": "file",
-    ".dat": "file",
-  },
-  // Node.js built-ins referenced by Emscripten-generated code (conditional,
-  // never executed in browser). Mark them as external to avoid resolution errors.
-  external: [
-    "worker_threads",
-    "events",
-    "fs",
-    "path",
-    "crypto",
-    "os",
-    "url",
-    "child_process",
-    "net",
-    "tls",
-    "http",
-    "https",
-    "stream",
-    "zlib",
-    "util",
-    "assert",
-    "buffer",
-  ],
-  define: {
-    "process.env.NODE_ENV": '"production"',
-  },
-});
+  rmSync(resolvePath(repoDir, "dist"), { force: true, recursive: true });
 
-// Bundle the Service Worker as a classic (IIFE) script: Firefox < 147 cannot
-// run module Service Workers. It must stay at the site root, because a Service
-// Worker's maximum scope is its own directory and it controls "./".
-await build({
-  entryPoints: ["sw.js"],
-  bundle: true,
-  outfile: "sw.bundle.js",
-  format: "iife",
-  platform: "browser",
-  target: "es2022",
-  sourcemap: true,
-});
+  await build({
+    absWorkingDir: repoDir,
+    entryPoints: ["php-worker.js"],
+    bundle: true,
+    outdir: "dist",
+    entryNames: "php-worker.bundle",
+    assetNames: "[name]-[hash]",
+    format: "esm",
+    platform: "browser",
+    target: "es2022",
+    sourcemap: true,
+    banner: {
+      js: `const __APP_ROOT__ = new URL("../", import.meta.url).href;`,
+    },
+    plugins: [
+      phpWasmIcuDataPlugin,
+      stripUnusedPhpVersions(dropVersions),
+      phpWasmUrlToImport,
+    ],
+    loader: {
+      ".wasm": "file",
+      ".so": "file",
+      ".dat": "file",
+    },
+    // Node.js built-ins referenced by Emscripten-generated code (conditional,
+    // never executed in browser). Mark them as external to avoid resolution errors.
+    external: [
+      "worker_threads",
+      "events",
+      "fs",
+      "path",
+      "crypto",
+      "os",
+      "url",
+      "child_process",
+      "net",
+      "tls",
+      "http",
+      "https",
+      "stream",
+      "zlib",
+      "util",
+      "assert",
+      "buffer",
+    ],
+    define: {
+      "process.env.NODE_ENV": '"production"',
+    },
+  });
 
-// Fail the build instead of shipping a worker that 404s on its PHP binary
-// (e.g. if a php-wasm update changes how the loaders reference the .wasm and
-// phpWasmUrlToImport stops matching).
-const emitted = readdirSync(resolvePath(repoDir, "dist"));
-const missingWasm = keepVersions.filter(
-  (v) =>
-    !emitted.some(
-      (f) => f.startsWith(`php_${v.replace("-", "_")}-`) && f.endsWith(".wasm"),
-    ),
-);
-if (missingWasm.length > 0) {
-  throw new Error(
-    `No .wasm emitted for PHP ${missingWasm.join(", ")}; check phpWasmUrlToImport against the installed @php-wasm/web-* loaders`,
+  // Bundle the Service Worker as a classic (IIFE) script: Firefox < 147 cannot
+  // run module Service Workers. It must stay at the site root, because a Service
+  // Worker's maximum scope is its own directory and it controls "./".
+  await build({
+    absWorkingDir: repoDir,
+    entryPoints: ["sw.js"],
+    bundle: true,
+    outfile: "sw.bundle.js",
+    format: "iife",
+    platform: "browser",
+    target: "es2022",
+    sourcemap: true,
+  });
+
+  // Fail the build instead of shipping a worker that 404s on its PHP binary
+  // (e.g. if a php-wasm update changes how the loaders reference the .wasm and
+  // phpWasmUrlToImport stops matching).
+  const emitted = readdirSync(resolvePath(repoDir, "dist"));
+  const missingWasm = keepVersions.filter(
+    (v) =>
+      !emitted.some(
+        (f) =>
+          f.startsWith(`php_${v.replace("-", "_")}-`) && f.endsWith(".wasm"),
+      ),
   );
+  if (missingWasm.length > 0) {
+    throw new Error(
+      `No .wasm emitted for PHP ${missingWasm.join(", ")}; check phpWasmUrlToImport against the installed @php-wasm/web-* loaders`,
+    );
+  }
+
+  // The cache version lives in src/generated/build-version.js, written by
+  // scripts/write-build-version.mjs (`npm run build:version`). It used to be a
+  // content hash of this bundle, which could not tell two builds of the same
+  // source apart; it is now the deployment Build ID.
+  // See docs/development.md ("The Build ID").
+  console.log(
+    `Built dist/php-worker.bundle.js (bundled PHP runtimes: ${keepVersions.join(", ") || "none"})`,
+  );
+  return keepVersions;
 }
 
-// The cache version lives in src/generated/build-version.js, written by
-// scripts/write-build-version.mjs (`npm run build:version`). It used to be a
-// content hash of this bundle, which could not tell two builds of the same
-// source apart; it is now the deployment Build ID.
-// See docs/development.md ("The Build ID").
-console.log(
-  `Built dist/php-worker.bundle.js (bundled PHP runtimes: ${keepVersions.join(", ") || "none"})`,
-);
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  await buildWorkers();
+}

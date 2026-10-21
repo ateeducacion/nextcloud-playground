@@ -89,6 +89,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 import { chromium } from "@playwright/test";
 
 function printHelp() {
@@ -122,8 +123,7 @@ Examples:
 `);
 }
 
-function parseArgs() {
-  const args = process.argv.slice(2);
+export function parseArgs(args = process.argv.slice(2)) {
   const out = {
     base: null,
     candidate: null,
@@ -250,7 +250,10 @@ function parseArgs() {
   return out;
 }
 
-function buildBlueprintData(overrides = {}, salt = Date.now().toString(36)) {
+export function buildBlueprintData(
+  overrides = {},
+  salt = Date.now().toString(36),
+) {
   const payload = {
     meta: {
       title: `Perf ${salt}`,
@@ -331,7 +334,7 @@ async function collectPerfSnapshot(page) {
   });
 }
 
-function stats(values) {
+export function stats(values) {
   const nums = values.filter((v) => typeof v === "number" && !Number.isNaN(v));
   if (nums.length === 0) return { count: 0 };
   const sorted = [...nums].sort((a, b) => a - b);
@@ -351,7 +354,7 @@ function stats(values) {
   };
 }
 
-function formatDelta(baseline, candidate) {
+export function formatDelta(baseline, candidate) {
   if (typeof baseline !== "number" || typeof candidate !== "number")
     return "n/a";
   const delta = candidate - baseline;
@@ -592,7 +595,12 @@ async function main() {
   }
 }
 
-main().catch((e) => {
-  console.error("Fatal error in perf-compare:", e);
-  process.exit(1);
-});
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  main().catch((e) => {
+    console.error("Fatal error in perf-compare:", e);
+    process.exit(1);
+  });
+}
