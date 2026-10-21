@@ -196,10 +196,6 @@ function recordBackEntry(previousPath, nextPath) {
 }
 
 async function ensureRuntimeServiceWorker() {
-  if (!config) {
-    return;
-  }
-
   if (!isServiceWorkerSupported()) {
     throw createServiceWorkerUnsupportedError();
   }
@@ -739,6 +735,8 @@ function flushRemotePersistence(timeoutMs = 60_000) {
 }
 
 async function main() {
+  // Locked until the remote host reports ready; also covers a failed boot.
+  setUiLocked(true);
   config = await loadPlaygroundConfig();
   activeBlueprint = await resolveBlueprintForShell(scopeId, config);
   updateBlueprintTextarea();
@@ -838,7 +836,6 @@ async function main() {
 
   bindServiceWorkerMessages();
   setPhpInfoContent("");
-  setUiLocked(true);
   await updateFrame();
 }
 
@@ -943,8 +940,11 @@ els.reset.addEventListener("click", () => {
   void updateFrame();
 });
 
+// main() failing means no runtime came up (config or blueprint did not load):
+// keep the runtime controls locked, or Home/Refresh would point the frame at
+// remote.html?runtime=undefined, and say why instead of showing an empty frame.
 main().catch((error) => {
-  setUiLocked(false);
   appendLog(formatErrorDetail(error), true);
+  showBlockingError(String(error?.message || error));
   captureException(error, { source: "shell-main" });
 });
