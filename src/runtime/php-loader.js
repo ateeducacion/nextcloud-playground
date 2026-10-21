@@ -85,7 +85,15 @@ function writeOpcacheBlacklist(php, FS) {
   php.writeFile(OPCACHE_BLACKLIST_PATH, OPCACHE_BLACKLIST);
 }
 
+// Indirection so unit tests can supply a fake runtime: Node cannot load the
+// browser WASM build. Production always uses these defaults.
+const runtimeDeps = {
+  loadWebRuntime,
+  createPhp: (runtimeId) => new PHP(runtimeId),
+};
+
 export const __testing = {
+  runtimeDeps,
   buildPhpIniEntries,
   writeOpcacheBlacklist,
   OPCACHE_BLACKLIST_PATH,
@@ -131,7 +139,7 @@ export function createPhpRuntime(
     async refresh() {
       const resolvedCorsProxyUrl = corsProxyUrl ?? phpCorsProxyUrl ?? null;
       const tcpOverFetch = await getTcpOverFetchOptions(resolvedCorsProxyUrl);
-      const runtimeId = await loadWebRuntime(resolvedPhpVersion, {
+      const runtimeId = await runtimeDeps.loadWebRuntime(resolvedPhpVersion, {
         tcpOverFetch,
         // Nextcloud strongly benefits from intl (translations, collation). It
         // is not in the base build but is available as a loadable extension.
@@ -141,7 +149,7 @@ export function createPhpRuntime(
           ALLOW_MEMORY_GROWTH: 1,
         },
       });
-      const php = new PHP(runtimeId);
+      const php = runtimeDeps.createPhp(runtimeId);
       const FS = php[__private__dont__use].FS;
       persistenceController = null;
 
