@@ -190,14 +190,9 @@ function buildEntryUrl(scopeId, runtimeId, path) {
   );
 }
 
-function navigateFrame(scopeId, runtimeId, path, { reload = false } = {}) {
+function navigateFrame(scopeId, runtimeId, path) {
   const entryUrl = buildEntryUrl(scopeId, runtimeId, path);
   activePath = path;
-
-  if (reload && frameEl.contentWindow) {
-    frameEl.contentWindow.location.reload();
-    return;
-  }
 
   if (frameEl.src !== entryUrl.toString()) {
     frameEl.src = entryUrl.toString();
@@ -243,11 +238,6 @@ function bindShellCommands(scopeId, runtimeId) {
     const message = event.data;
     if (message?.kind === "navigate-site") {
       navigateFrame(scopeId, runtimeId, message.path || "/");
-      return;
-    }
-
-    if (message?.kind === "refresh-site") {
-      navigateFrame(scopeId, runtimeId, activePath || "/", { reload: true });
       return;
     }
 

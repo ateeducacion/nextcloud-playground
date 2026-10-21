@@ -433,8 +433,9 @@ test("remote host answers shell commands from its own origin only", async () => 
   shellMessage(remote, { kind: "navigate-site" });
   assert.equal(remote.frame.src, `${ORIGIN}/app/playground/s1/php82/`);
 
+  // refresh-site is gone: a reload could resubmit a page rendered from a POST.
   shellMessage(remote, { kind: "refresh-site" });
-  assert.equal(contentWindow.location.reloaded, 1);
+  assert.equal(contentWindow.location.reloaded, 0);
 
   shellMessage(remote, { kind: "capture-phpinfo" });
   shellMessage(remote, { kind: "flush-persistence" });
