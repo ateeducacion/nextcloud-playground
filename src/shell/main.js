@@ -202,9 +202,10 @@ async function ensureRuntimeServiceWorker() {
   const swUrl = new URL(`../../${SERVICE_WORKER_SCRIPT}`, import.meta.url);
   // Cache-bust the SW by the per-build worker-bundle hash so a redeploy is
   // always picked up (the old static config.bundleVersion was manual).
+  // Only the build may change the URL: it is the registration's identity, so a
+  // per-scope or per-runtime value would install a new worker under every
+  // other open tab (issue #140). sw.js routes by the /playground/ path.
   swUrl.searchParams.set("v", BUILD_VERSION);
-  swUrl.searchParams.set("scope", scopeId);
-  swUrl.searchParams.set("runtime", currentRuntimeId);
 
   await registerClassicServiceWorker(swUrl);
   await navigator.serviceWorker?.ready;

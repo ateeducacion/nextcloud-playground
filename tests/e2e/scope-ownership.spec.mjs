@@ -214,9 +214,28 @@ test("distinct scopes acquire ownership independently", async ({
   const other = `independent-${crypto.randomUUID()}`;
   await page.goto(`/?scope=${scope}`);
   await ready(page);
+  // Every worker on the registration: the controller plus any update being
+  // installed or waiting, which would take over this tab once activated.
+  const serviceWorkers = (target) =>
+    target.evaluate(async () => {
+      const registration = await navigator.serviceWorker.getRegistration();
+      return [
+        navigator.serviceWorker.controller,
+        registration?.active,
+        registration?.waiting,
+        registration?.installing,
+      ].map((worker) => worker?.scriptURL ?? null);
+    });
+  const [controller] = await serviceWorkers(page);
+  expect(controller).toBeTruthy();
   const second = await context.newPage();
   await second.goto(`/?scope=${other}`);
   await ready(second);
+  // Opening another scope must not install a new Service Worker under the
+  // first tab: a swap mid-request can drop its bridge (issue #140).
+  const unchanged = [controller, controller, null, null];
+  expect(await serviceWorkers(page)).toEqual(unchanged);
+  expect(await serviceWorkers(second)).toEqual(unchanged);
   const held = await heldLocks(page);
   expect(held).toContain(`${prefix}-owner:${scope}`);
   expect(held).toContain(`${prefix}-owner:${other}`);

@@ -89,7 +89,7 @@ function monitoringHintFor(error) {
   return null;
 }
 
-async function registerRuntimeServiceWorker(scopeId, runtimeId) {
+async function registerRuntimeServiceWorker() {
   if (!isServiceWorkerSupported()) {
     throw createServiceWorkerUnsupportedError();
   }
@@ -99,9 +99,8 @@ async function registerRuntimeServiceWorker(scopeId, runtimeId) {
   }
 
   const swUrl = new URL(`../../${SERVICE_WORKER_SCRIPT}`, import.meta.url);
+  // Build-only URL, same as the shell's: see ensureRuntimeServiceWorker().
   swUrl.searchParams.set("v", BUILD_VERSION);
-  swUrl.searchParams.set("scope", scopeId);
-  swUrl.searchParams.set("runtime", runtimeId);
 
   let registration;
   try {
@@ -287,7 +286,7 @@ async function bootstrapRemote() {
     progress: 0.08,
   });
 
-  await registerRuntimeServiceWorker(scopeId, runtime.id);
+  await registerRuntimeServiceWorker();
   await waitForServiceWorkerControl();
   setRemoteProgress("Service Worker ready and controlling this tab.", 0.12);
 
