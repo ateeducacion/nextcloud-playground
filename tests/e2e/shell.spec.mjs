@@ -255,3 +255,46 @@ test("persists /persist to IndexedDB and reboots from it on reload", async ({
   await page.reload();
   await waitForRuntimeReady(page);
 });
+
+test("keeps an address being typed when the site frame navigates", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await waitForRuntimeReady(page);
+  const appPath = () =>
+    page.evaluate(() => {
+      const host = document.querySelector("#site-frame").contentDocument;
+      const app = host?.querySelector("#remote-frame")?.contentWindow;
+      return `${app?.location.pathname}${app?.location.search}`;
+    });
+  await expect.poll(appPath).toMatch(/\/index\.php\/apps\/files\//u);
+
+  // A page finishing its load in the frame reports its path to the shell.
+  // That must not replace what the user is typing: the toolbar unlocks before
+  // the landing page has loaded, so typing can overlap that load.
+  await page.locator("#address-input").fill("/index.php/settings/user");
+  await page
+    .frameLocator("#site-frame")
+    .frameLocator("#remote-frame")
+    .locator("body")
+    .evaluate(() => {
+      const url = new URL(location.href);
+      url.searchParams.set("dir", "/Documents");
+      location.assign(url);
+    });
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Object.keys(sessionStorage)
+          .filter((key) => key.endsWith(":state"))
+          .map((key) => JSON.parse(sessionStorage.getItem(key)).path),
+      ),
+    )
+    .toContainEqual(expect.stringContaining("dir="));
+  await expect(page.locator("#address-input")).toHaveValue(
+    "/index.php/settings/user",
+  );
+
+  await page.locator("#address-input").press("Enter");
+  await expect.poll(appPath).toMatch(/\/index\.php\/settings\/user$/u);
+});

@@ -372,6 +372,34 @@ describe("normal boot", () => {
       .dispatchEvent(new shell.win.Event("submit", { cancelable: true }));
     assert.equal(shell.posted.at(-1).message.path, "/");
 
+    // A path the frame reports while the user is typing (the toolbar unlocks
+    // before the landing page loads) records the navigation but leaves the
+    // typed text alone, until submit or blur ends the edit.
+    const stateOf = () =>
+      JSON.parse(
+        shell.window.sessionStorage.getItem("nextcloud-playground:s2:state"),
+      ).path;
+    address.value = "/index.php/settings/user";
+    address.dispatchEvent(new shell.win.Event("input"));
+    shell.send({ kind: "ready", path: "/index.php/apps/files/" });
+    shell.send({ kind: "navigate", path: "/index.php/apps/files/" });
+    assert.equal(address.value, "/index.php/settings/user");
+    assert.equal(stateOf(), "/index.php/apps/files/");
+    shell
+      .$("#address-form")
+      .dispatchEvent(new shell.win.Event("submit", { cancelable: true }));
+    assert.equal(shell.posted.at(-1).message.path, "/index.php/settings/user");
+    shell.send({ kind: "navigate", path: "/index.php/settings/user/" });
+    assert.equal(address.value, "/index.php/settings/user/");
+
+    address.value = "/index.php/apps/ph";
+    address.dispatchEvent(new shell.win.Event("input"));
+    shell.send({ kind: "navigate", path: "/index.php/apps/files/" });
+    assert.equal(address.value, "/index.php/apps/ph");
+    address.dispatchEvent(new shell.win.Event("blur"));
+    shell.send({ kind: "navigate", path: "/index.php/apps/files/" });
+    assert.equal(address.value, "/index.php/apps/files/");
+
     // Unknown and trace messages.
     shell.send({ kind: "trace", detail: "trace line" });
     shell.send({ kind: "trace" });
