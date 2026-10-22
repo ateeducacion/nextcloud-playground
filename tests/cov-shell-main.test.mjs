@@ -225,9 +225,9 @@ describe("normal boot", () => {
     const shell = await boot({ href: "http://localhost:8080/?scope=s1" });
     const sw = new URL(shell.registered[0].url);
     assert.match(sw.pathname, /\/sw\.bundle\.js$/u);
-    assert.equal(sw.searchParams.get("v"), BUILD_VERSION);
-    assert.equal(sw.searchParams.get("scope"), "s1");
-    assert.equal(sw.searchParams.get("runtime"), "php83-nc33");
+    // The script URL is the registration's identity: only the build may
+    // change it, or a new scope/runtime swaps the worker under other tabs.
+    assert.equal(sw.search, `?v=${BUILD_VERSION}`);
     assert.deepEqual(shell.registered[0].options, {
       scope: "./",
       updateViaCache: "none",
@@ -800,9 +800,11 @@ describe("configuration panel", () => {
       shell.posted.filter((p) => p.message.kind === "flush-persistence").length,
       0,
     );
+    // Same script URL as the first registration: switching runtime must not
+    // install a new Service Worker under the other open tabs.
     assert.equal(
-      new URL(shell.registered.at(-1).url).searchParams.get("runtime"),
-      "php83-nc30",
+      String(shell.registered.at(-1).url),
+      String(shell.registered[0].url),
     );
   });
 

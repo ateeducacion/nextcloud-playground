@@ -274,9 +274,8 @@ test("remote host registers the Service Worker, boots the PHP worker and loads t
   assert.equal(remote.registerCalls.length, 1);
   const swUrl = remote.registerCalls[0].url;
   assert.equal(swUrl.pathname.endsWith("/sw.bundle.js"), true);
-  assert.equal(swUrl.searchParams.get("v"), BUILD_VERSION);
-  assert.equal(swUrl.searchParams.get("scope"), "s1");
-  assert.equal(swUrl.searchParams.get("runtime"), "php82");
+  // Only the build may change the script URL (the registration's identity).
+  assert.equal(swUrl.search, `?v=${BUILD_VERSION}`);
   assert.deepEqual(remote.registerCalls[0].options, {
     scope: "./",
     updateViaCache: "none",

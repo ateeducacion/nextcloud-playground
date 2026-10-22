@@ -324,3 +324,15 @@ and the controlled remote-host HTTP bridge; ordinary reload and Reset are tested
 separately. Do not interpret those checks as validation of every concurrent
 Nextcloud app-frame navigation. Investigate routing separately before claiming
 full multi-instance browser support.
+
+One cause is fixed (issue #140). The shell and remote host used to register the
+Service Worker with `scope` and `runtime` in its script URL, which `sw.js` never
+read. The script URL is the registration's identity, so opening a second scope
+installed a new worker that took control of every open tab, including one with
+a request in flight. The URL now carries only `v=<build>`; `sw.js` takes the
+scope and runtime from the `/playground/<scope>/<runtime>/` path. The
+independent-scope e2e asserts that no new worker is installed or waiting. A
+later local check sent POSTs from both app iframes and all reached the PHP
+channel through the Service Worker, but the static-server 405 was never
+reproduced before the fix either, so treat it as unconfirmed rather than
+resolved.
