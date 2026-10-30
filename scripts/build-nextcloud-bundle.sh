@@ -11,8 +11,8 @@ set -eu
 # docs/streaming-tar-zst-core-bundle.md). It fully replaces the old ZIP bundle.
 #
 # Inputs (env):
-#   NC_RELEASE  release id to fetch (default "latest-33")
-#   NC_MAJOR    Nextcloud major version (default "33")
+#   NC_RELEASE  release id to fetch (default "latest-34")
+#   NC_MAJOR    Nextcloud major version (default "34")
 #
 # Outputs:
 #   assets/nextcloud/nextcloud-${MAJOR}/nextcloud-core-${MAJOR}.tar.zst
@@ -30,8 +30,8 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 
-RELEASE=${NC_RELEASE:-latest-33}
-MAJOR=${NC_MAJOR:-33}
+RELEASE=${NC_RELEASE:-latest-34}
+MAJOR=${NC_MAJOR:-34}
 
 WORK_DIR=${WORK_DIR:-"$REPO_DIR/.cache/build-nextcloud"}
 STAGE_DIR="$WORK_DIR/stage"
@@ -197,7 +197,7 @@ node "$SCRIPT_DIR/generate-manifest.mjs" \
 
 # 8. The default major (per src/shared/nextcloud-versions.js) also publishes
 #    latest.json.
-DEFAULT_MAJOR=$(node -e "import('$REPO_DIR/src/shared/nextcloud-versions.js').then(m=>process.stdout.write(m.defaultVersion().major))" 2>/dev/null || echo "33")
+DEFAULT_MAJOR=$(node -e "import('$REPO_DIR/src/shared/nextcloud-versions.js').then(m=>process.stdout.write(m.defaultVersion().major))" 2>/dev/null || echo "34")
 if [ "$MAJOR" = "$DEFAULT_MAJOR" ]; then
   cp "$MANIFEST_PATH" "$MANIFEST_DIR/latest.json"
   echo "Copied manifest to $MANIFEST_DIR/latest.json" >&2

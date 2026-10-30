@@ -172,6 +172,29 @@ describe("generated PHP scripts", () => {
     assert.match(buildAutologinScript({}), /->login\('admin', 'admin'\)/);
   });
 
+  it("resolves server services through the container, not removed \\OC::$server getters", () => {
+    // Nextcloud 34 dropped Server::getSession/getUserSession/getRequest/
+    // getUserManager (present in 33 at Server.php:1407/1399/1334). Calling them
+    // threw inside the try/catch, so autologin silently returned ok:false and
+    // the playground landed on the login form. Resolve via the PSR container
+    // instead, which SimpleContainer::get has provided across every supported
+    // major.
+    const scripts = [
+      buildLoginScript(),
+      buildCreateShareScript({ uid: "admin", path: "f" }),
+    ];
+    for (const script of scripts) {
+      assert.doesNotMatch(script, /\$server->get[A-Z]/);
+    }
+    assert.match(buildLoginScript(), /get\(\\OCP\\ISession::class\)/);
+    assert.match(buildLoginScript(), /get\(\\OCP\\IUserSession::class\)/);
+    assert.match(buildLoginScript(), /get\(\\OCP\\IRequest::class\)/);
+    assert.match(
+      buildCreateShareScript({ uid: "admin", path: "f" }),
+      /get\(\\OCP\\IUserManager::class\)/,
+    );
+  });
+
   it("builds the occ install argv from config with defaults", () => {
     const argvOf = (script) =>
       JSON.parse(script.match(/\$_SERVER\['argv'\] = (\[.*\]);/)[1]);

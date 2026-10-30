@@ -16,7 +16,8 @@ export const NEXTCLOUD_VERSIONS = [
   { major: "30", release: "latest-30", php: "8.3", default: false },
   { major: "31", release: "latest-31", php: "8.3", default: false },
   { major: "32", release: "latest-32", php: "8.3", default: false },
-  { major: "33", release: "latest-33", php: "8.3", default: true },
+  { major: "33", release: "latest-33", php: "8.3", default: false },
+  { major: "34", release: "latest-34", php: "8.3", default: true },
 ];
 
 /**

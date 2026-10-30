@@ -1,16 +1,16 @@
 PORT ?= 8085
-NC_MAJOR ?= 33
-NC_RELEASE ?= latest-33
+NC_MAJOR ?= 34
+NC_RELEASE ?= latest-34
 
-.PHONY: help up deps build-version prepare bundle bundle-all bundle-30 bundle-31 bundle-32 bundle-33 \
+.PHONY: help up deps build-version prepare bundle bundle-all bundle-30 bundle-31 bundle-32 bundle-33 bundle-34 \
         serve test coverage test-e2e lint format clean reset perf-compare
 
 help:
 	@printf '%s\n' 'Nextcloud Playground Make targets:' '' \
 	  '  make deps        Install npm dependencies' \
 	  '  make prepare     Sync browser deps and build the worker bundle' \
-	  '  make bundle      Build one Nextcloud bundle (default NC 33)' \
-	  '  make bundle-all  Build NC 30, 31, 32 and 33 bundles' \
+	  '  make bundle      Build one Nextcloud bundle (default NC 34)' \
+	  '  make bundle-all  Build NC 30, 31, 32, 33 and 34 bundles' \
 	  '  make serve       Start the local dev server' \
 	  '  make up          Run bundle + serve' \
 	  '  make test        Run unit tests' \
@@ -54,7 +54,10 @@ bundle-32:
 bundle-33:
 	NC_MAJOR=33 NC_RELEASE=latest-33 npm run bundle
 
-bundle-all: prepare bundle-30 bundle-31 bundle-32 bundle-33
+bundle-34:
+	NC_MAJOR=34 NC_RELEASE=latest-34 npm run bundle
+
+bundle-all: prepare bundle-30 bundle-31 bundle-32 bundle-33 bundle-34
 
 # src/generated/build-version.js is generated and git-ignored; several tests
 # (and the modules they import) expect it to exist.
