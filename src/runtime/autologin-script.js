@@ -22,9 +22,9 @@ export function buildLoginScript({ username, password } = {}) {
 require '${NEXTCLOUD_ROOT}/lib/base.php';
 header('Content-Type: application/json');
 try {
-    $session = \\OC::$server->getSession();
-    $userSession = \\OC::$server->getUserSession();
-    $request = \\OC::$server->getRequest();
+    $session = \\OC::$server->get(\\OCP\\ISession::class);
+    $userSession = \\OC::$server->get(\\OCP\\IUserSession::class);
+    $request = \\OC::$server->get(\\OCP\\IRequest::class);
     $ok = $userSession->login('${user}', '${pass}');
     $user = $userSession->getUser();
     if ($ok && $user) {

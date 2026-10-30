@@ -41,8 +41,8 @@ header('Content-Type: application/json');
 try {
     $owner = '${uid}';
     $userPath = '${rel}';
-    $userManager = \\OC::$server->getUserManager();
-    $userSession = \\OC::$server->getUserSession();
+    $userManager = \\OC::$server->get(\\OCP\\IUserManager::class);
+    $userSession = \\OC::$server->get(\\OCP\\IUserSession::class);
     $user = $userManager->get($owner);
     if (!$user) {
         echo json_encode(['ok' => false, 'error' => "user not found: $owner"]);
