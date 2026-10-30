@@ -69,7 +69,7 @@ beforeEach(() => {
   globalThis.fetch = async (url, init) => {
     fetched.push({ url: String(url), init });
     const make = responses.get(String(url));
-    return make ? make() : new Response("missing", { status: 404 });
+    return make ? make(init) : new Response("missing", { status: 404 });
   };
 });
 
@@ -223,6 +223,25 @@ describe("fetchBundleWithCache (single bundle)", () => {
     );
     assert.equal(dec(bytes), dec(body));
     assert.ok(cacheOps.some(([op]) => op === "delete"));
+    assert.equal(dec(store.get(BUNDLE_URL)), dec(body));
+  });
+
+  it("refetches past the HTTP cache when the downloaded bytes mismatch", async () => {
+    installCache();
+    // A deploy rebuilt the bundle at the same URL: the HTTP cache still holds
+    // the previous build while the manifest already advertises the new sha256.
+    responses.set(
+      BUNDLE_URL,
+      (init) =>
+        new Response(init?.cache === "reload" ? body : enc("stale-build")),
+    );
+
+    const bytes = await fetchBundleWithCache(
+      manifest({ sha256: sha256Hex(body) }),
+    );
+    assert.equal(dec(bytes), dec(body));
+    assert.equal(fetched.length, 2, "one retry");
+    assert.equal(fetched[1].init?.cache, "reload");
     assert.equal(dec(store.get(BUNDLE_URL)), dec(body));
   });
 
