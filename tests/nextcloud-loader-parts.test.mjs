@@ -13,13 +13,16 @@ function installMocks() {
   const store = new Map();
   let fetchCount = 0;
   const responses = new Map();
+  const inits = [];
 
   globalThis.__fetchCount = () => fetchCount;
-  globalThis.fetch = async (url) => {
+  globalThis.fetch = async (url, init) => {
     fetchCount += 1;
-    const bytes = responses.get(String(url));
-    if (!bytes) return new Response("not found", { status: 404 });
-    return new Response(bytes, { status: 200 });
+    inits.push(init);
+    const entry = responses.get(String(url));
+    if (!entry) return new Response("not found", { status: 404 });
+    if (typeof entry === "function") return entry(init);
+    return new Response(entry, { status: 200 });
   };
 
   const cache = {
@@ -36,7 +39,7 @@ function installMocks() {
   };
   globalThis.caches = { open: async () => cache };
 
-  return { responses };
+  return { responses, inits };
 }
 
 function teardownMocks() {
@@ -118,6 +121,35 @@ describe("fetchBundleWithCache (zip-parts)", () => {
       "second call must hit the cache",
     );
     assert.equal(sha256Hex(again), sha256Hex(bundle));
+  });
+
+  it("refetches a part past the HTTP cache when its bytes mismatch", async () => {
+    const bundle = makeBundle(100 * 1024);
+    const { manifest, parts } = makeChunkedManifest(bundle, 48 * 1024);
+    for (const part of parts) mocks.responses.set(part.url, part.bytes);
+    // A deploy rebuilt the bundle at the same URLs: the HTTP cache still holds
+    // the previous build's first part while the manifest advertises the new sha.
+    const stale = new Uint8Array(parts[0].bytes);
+    stale[0] ^= 0xff;
+    mocks.responses.set(
+      parts[0].url,
+      (init) =>
+        new Response(init?.cache === "reload" ? parts[0].bytes : stale, {
+          status: 200,
+        }),
+    );
+
+    const result = await fetchBundleWithCache(manifest);
+    assert.equal(sha256Hex(result), sha256Hex(bundle));
+    assert.equal(
+      globalThis.__fetchCount(),
+      parts.length + 1,
+      "one retry on top of one fetch per part",
+    );
+    assert.ok(
+      mocks.inits.some((init) => init?.cache === "reload"),
+      "retry bypasses the HTTP cache",
+    );
   });
 
   it("rejects a corrupted part (per-part sha256 mismatch)", async () => {
