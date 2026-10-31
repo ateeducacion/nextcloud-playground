@@ -16,16 +16,16 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@php-wasm/fs-journal": "^3.1.60",
-    "@php-wasm/universal": "^3.1.60",
-    "@php-wasm/util": "^3.1.60",
-    "@php-wasm/web": "^3.1.60",
+    "@php-wasm/fs-journal": "^3.1.61",
+    "@php-wasm/universal": "^3.1.61",
+    "@php-wasm/util": "^3.1.61",
+    "@php-wasm/web": "^3.1.61",
     "fflate": "^0.8.3",
     "zstddec": "^0.3.4"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.2",
-    "@php-wasm/node": "^3.1.60",
+    "@php-wasm/node": "^3.1.61",
     "@playwright/test": "^1.64.1",
     "c8": "12.0.0",
     "esbuild": "^0.28.2",
