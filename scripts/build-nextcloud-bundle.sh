@@ -11,8 +11,8 @@ set -eu
 # docs/streaming-tar-zst-core-bundle.md). It fully replaces the old ZIP bundle.
 #
 # Inputs (env):
-#   NC_RELEASE  release id to fetch (default "latest-34")
-#   NC_MAJOR    Nextcloud major version (default "34")
+#   NC_RELEASE  release id to fetch (default "latest-35")
+#   NC_MAJOR    Nextcloud major version (default "35")
 #
 # Outputs:
 #   assets/nextcloud/nextcloud-${MAJOR}/nextcloud-core-${MAJOR}.tar.zst
@@ -30,8 +30,8 @@ set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 
-RELEASE=${NC_RELEASE:-latest-34}
-MAJOR=${NC_MAJOR:-34}
+RELEASE=${NC_RELEASE:-latest-35}
+MAJOR=${NC_MAJOR:-35}
 
 WORK_DIR=${WORK_DIR:-"$REPO_DIR/.cache/build-nextcloud"}
 STAGE_DIR="$WORK_DIR/stage"
@@ -52,55 +52,10 @@ mkdir -p "$NC_STAGE" "$DIST_DIR" "$MANIFEST_DIR"
 echo "Staging source -> $NC_STAGE ..." >&2
 cp -R "$SOURCE_DIR"/. "$NC_STAGE"
 
-# 3. Apply WASM patches (all gated on PHP_SAPI so they no-op on real servers).
+# 3. Apply WASM patches (scripts/apply-wasm-patches.sh; no-ops on real servers).
 #    Each patch is verified with grep; a missing target is a hard failure.
 echo "Applying WASM patches ..." >&2
-
-apply_patch() {
-  # apply_patch <file> <perl-expr> <verify-substring>
-  file="$1"
-  expr="$2"
-  needle="$3"
-  if [ ! -f "$NC_STAGE/$file" ]; then
-    echo "ERROR: patch target not found: $file" >&2
-    exit 1
-  fi
-  perl -0pi -e "$expr" "$NC_STAGE/$file"
-  if ! grep -qF "$needle" "$NC_STAGE/$file"; then
-    echo "ERROR: patch did not apply (marker missing) in $file" >&2
-    exit 1
-  fi
-  echo "  patched $file" >&2
-}
-
-# The playground's PHP reports the SAPI name `uwsgi` while OPcache is on (the
-# default; php-src <= 8.4 only starts OPcache for whitelisted SAPI names) and
-# `wasm` with `?opcache=0`. Keep this list in sync with
-# OPCACHE_SAPI_NAME in src/runtime/php-loader.js. See docs/KNOWN-ISSUES.md#opcache.
-# (a) lib/base.php — treat occ (no REQUEST_URI) as CLI under the playground SAPIs.
-apply_patch "lib/base.php" \
-  "s/self::\\\$CLI = \\(php_sapi_name\\(\\) == 'cli'\\);/self::\\\$CLI = (php_sapi_name() == 'cli') || (in_array(PHP_SAPI, ['wasm', 'uwsgi'], true) \\&\\& empty(\\\$_SERVER['REQUEST_URI']));/" \
-  "(in_array(PHP_SAPI, ['wasm', 'uwsgi'], true) && empty(\$_SERVER['REQUEST_URI']))"
-
-# (b) lib/private/Config.php — skip unreliable shared flock under the playground SAPIs.
-apply_patch "lib/private/Config.php" \
-  "s/if \\(!flock\\(\\\$filePointer, LOCK_SH\\)\\) \\{/if (!flock(\\\$filePointer, LOCK_SH) \\&\\& !in_array(PHP_SAPI, ['wasm', 'uwsgi'], true)) {/" \
-  "if (!flock(\$filePointer, LOCK_SH) && !in_array(PHP_SAPI, ['wasm', 'uwsgi'], true)) {"
-
-# (c) lib/private/Config.php — skip unreliable exclusive flock under the playground SAPIs.
-apply_patch "lib/private/Config.php" \
-  "s/if \\(!flock\\(\\\$filePointer, LOCK_EX\\)\\) \\{/if (!flock(\\\$filePointer, LOCK_EX) \\&\\& !in_array(PHP_SAPI, ['wasm', 'uwsgi'], true)) {/" \
-  "if (!flock(\$filePointer, LOCK_EX) && !in_array(PHP_SAPI, ['wasm', 'uwsgi'], true)) {"
-
-# (d) console.php — skip the posix uid/owner mismatch refusal under the playground SAPIs.
-apply_patch "console.php" \
-  "s/if \\(\\\$user !== \\\$configUser\\) \\{/if (\\\$user !== \\\$configUser \\&\\& !in_array(PHP_SAPI, ['wasm', 'uwsgi'], true)) {/" \
-  "if (\$user !== \$configUser && !in_array(PHP_SAPI, ['wasm', 'uwsgi'], true)) {"
-
-# (e) lib/private/Avatar/Avatar.php — guard imagettfbbox returning false.
-apply_patch "lib/private/Avatar/Avatar.php" \
-  "s/(\\\$box = imagettfbbox\\(\\\$size, \\\$angle, \\\$font, \\\$text\\);)/\$1\\n\\t\\tif (!is_array(\\\$box)) { return [0, (int)\\\$size]; }/" \
-  "if (!is_array(\$box)) { return [0, (int)\$size]; }"
+"$SCRIPT_DIR/apply-wasm-patches.sh" "$NC_STAGE"
 
 # 4. Trim aggressively — the browser holds the whole bundle in MEMFS.
 echo "Stage size before trim: $(du -sh "$NC_STAGE" | cut -f1)" >&2
@@ -197,7 +152,7 @@ node "$SCRIPT_DIR/generate-manifest.mjs" \
 
 # 8. The default major (per src/shared/nextcloud-versions.js) also publishes
 #    latest.json.
-DEFAULT_MAJOR=$(node -e "import('$REPO_DIR/src/shared/nextcloud-versions.js').then(m=>process.stdout.write(m.defaultVersion().major))" 2>/dev/null || echo "34")
+DEFAULT_MAJOR=$(node -e "import('$REPO_DIR/src/shared/nextcloud-versions.js').then(m=>process.stdout.write(m.defaultVersion().major))" 2>/dev/null || echo "35")
 if [ "$MAJOR" = "$DEFAULT_MAJOR" ]; then
   cp "$MANIFEST_PATH" "$MANIFEST_DIR/latest.json"
   echo "Copied manifest to $MANIFEST_DIR/latest.json" >&2
