@@ -79,7 +79,7 @@ the sibling playgrounds.
 
 ### Supported versions
 
-Multi-version: **Nextcloud 30 / 31 / 32 / 33 / 34** on PHP 8.3 (default 34). Versions are
+Multi-version: **Nextcloud 30 / 31 / 32 / 33 / 34 / 35** on PHP 8.3 (default 35). Versions are
 declared in [`src/shared/nextcloud-versions.js`](src/shared/nextcloud-versions.js).
 
 ## Blueprints
@@ -108,8 +108,8 @@ See [`docs/blueprint-json.md`](docs/blueprint-json.md) for all step types and
 
 ```bash
 make prepare     # sync browser deps + build the worker bundle
-make bundle      # build one Nextcloud bundle (default NC 34)
-make bundle-all  # build NC 30, 31, 32, 33 and 34
+make bundle      # build one Nextcloud bundle (default NC 35)
+make bundle-all  # build NC 30, 31, 32, 33, 34 and 35
 make serve       # serve at http://localhost:8085
 make test        # unit tests
 make test-e2e    # Playwright browser tests

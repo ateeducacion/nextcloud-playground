@@ -67,9 +67,11 @@ Under `@php-wasm`, `php_sapi_name()` returns **`wasm`** and the build is
 `--disable-posix`. Nextcloud is made to run with:
 
 - a **posix polyfill** (`auto_prepend_file`, fake `www-data` uid 33), and
-- a **five-patch source set** gated on `PHP_SAPI === 'wasm'` (no-ops on a real
-  server): `base.php` CLI detection, two `Config.php` `flock` guards, the
-  `console.php` owner check, and the `Avatar.php` letter-avatar bbox fallback.
+- a **source patch set** in `scripts/apply-wasm-patches.sh` (no-ops on a real
+  server): `OC` class CLI detection (`lib/base.php`, or `lib/OC.php` since
+  Nextcloud 35), two `Config.php` `flock` guards, the `console.php` owner check,
+  the `Avatar.php` letter-avatar bbox fallback and, on Nextcloud >= 35, the
+  `Hasher.php` argon2 constants (php-wasm has no argon2).
 
 The exact lines and rationale are in [feasibility-spike.md](feasibility-spike.md)
 and the `nextcloud-internals` agent skill.
@@ -198,9 +200,10 @@ and the `wasm-browser-runtime` skill.
 2. Build the bundle for that release (`make bundle`, with the release override
    as needed) and confirm the manifest is generated.
 
-3. Verify the WASM patch set still applies cleanly against the new source (the
-   patched line numbers in `lib/base.php`, `lib/private/Config.php`,
-   `console.php`, `lib/private/Avatar/Avatar.php` can shift between majors).
+3. Verify the WASM patch set (`scripts/apply-wasm-patches.sh`, covered by
+   `tests/apply-wasm-patches.test.mjs`) still applies cleanly against the new
+   source. Targets move between majors: Nextcloud 35 moved class `OC` from
+   `lib/base.php` to `lib/OC.php`; a missing marker fails the build.
 
 4. Smoke-test: `occ maintenance:install` exits 0, `occ status` / `status.php`
    reports installed with the right `versionstring`, and `/index.php/login`
@@ -225,7 +228,8 @@ to keep the `wasm` SAPI and turn the cache off; a URL value always overrides
 the config. The parameter travels
 shell → `remote.html` → PHP worker; `isOpcacheEnabled()` in
 `src/shared/config.js` is the single decision point. It requires a core bundle
-built by the current `scripts/build-nextcloud-bundle.sh` (its `wasm` patches
+built by the current `scripts/build-nextcloud-bundle.sh` (its `wasm` patches in
+`scripts/apply-wasm-patches.sh`
 also accept `uwsgi`). Behaviour, memory cost and the persistence caveat are in
 [known issues](KNOWN-ISSUES.md#opcache); `tests/e2e/opcache-canary.spec.mjs`
 asserts that a rewritten PHP file recompiles with and without the cache. The

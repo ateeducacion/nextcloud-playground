@@ -132,7 +132,7 @@ Consequences:
   `Server.php`, Snowflake, `updater/`), `cli-server` (`Setup.php`,
   `Log/File.php`) and the playground's own `wasm` patches (`lib/base.php` occ
   detection, `Config.php` flock bypass, `console.php` owner check), which
-  `scripts/build-nextcloud-bundle.sh` now gates on `wasm` **or** `uwsgi`.
+  `scripts/apply-wasm-patches.sh` now gates on `wasm` **or** `uwsgi`.
   The cache therefore needs a core bundle built from that script version:
   with an older bundle `occ` is not recognised as CLI and the install fails.
 - Memory: the cached `.bin` files live in MEMFS (tens of MB for Nextcloud) and

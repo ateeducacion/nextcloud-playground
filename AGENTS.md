@@ -48,9 +48,10 @@ Generated output is under `assets/nextcloud/`, `assets/manifests/`, and `dist/`.
   and breaks `strict_types`. Keep web requests distinguishable from CLI requests.
 - The posix polyfill must load before Nextcloud code. Browser prepend path:
   `/internal/shared/auto_prepend_file.php`. The browser loader requests `intl`.
-- Preserve the WASM-specific CLI/config-lock/owner-check patches and failed-font
-  fallback in `scripts/build-nextcloud-bundle.sh`. Check the script for exact
-  gates: the avatar fallback is guarded by a failed `imagettfbbox`, not by SAPI.
+- Preserve the WASM-specific CLI/config-lock/owner-check patches, failed-font
+  fallback and argon2-free hasher in `scripts/apply-wasm-patches.sh`. Check the
+  script for exact gates: the avatar fallback is guarded by a failed
+  `imagettfbbox`, not by SAPI.
 - No native subprocesses, real cron, Redis/APCu, or external preview binaries are
   available. Keep the existing safe configuration and spawn-handler behavior.
 - `nextcloud-fs-journal:<scope>` journals `/persist`, `/www/nextcloud/config`, and

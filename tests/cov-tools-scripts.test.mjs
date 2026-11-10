@@ -41,6 +41,40 @@ describe("src/shared/nextcloud-versions.js", () => {
     assert.equal(findVersion("29"), undefined);
   });
 
+  it("supports Nextcloud 35 as the default release", () => {
+    assert.equal(findVersion("35")?.release, "latest-35");
+    assert.equal(defaultVersion().major, "35");
+  });
+
+  it("stays in sync with playground.config.json and the build defaults", () => {
+    const config = JSON.parse(
+      readFileSync(resolve(repo, "playground.config.json"), "utf8"),
+    );
+    const majors = NEXTCLOUD_VERSIONS.map((v) => v.major);
+    assert.deepEqual(
+      config.runtimes.map((r) => r.nextcloudVersion),
+      majors,
+    );
+    const def = defaultVersion();
+    assert.equal(config.defaults.nextcloudVersion, def.major);
+    assert.equal(
+      config.runtimes.find((r) => r.default)?.nextcloudVersion,
+      def.major,
+    );
+    const makefile = readFileSync(resolve(repo, "Makefile"), "utf8");
+    assert.match(makefile, new RegExp(`^NC_MAJOR \\?= ${def.major}$`, "m"));
+    assert.match(makefile, new RegExp(`^NC_RELEASE \\?= ${def.release}$`, "m"));
+    for (const major of majors) {
+      assert.match(makefile, new RegExp(`^bundle-${major}:`, "m"));
+    }
+    const build = readFileSync(
+      resolve(repo, "scripts/build-nextcloud-bundle.sh"),
+      "utf8",
+    );
+    assert.match(build, new RegExp(`NC_RELEASE:-${def.release}\\}`));
+    assert.match(build, new RegExp(`NC_MAJOR:-${def.major}\\}`));
+  });
+
   it("falls back to the first entry when none is flagged default", () => {
     const flagged = NEXTCLOUD_VERSIONS.filter((v) => v.default);
     for (const v of flagged) v.default = false;

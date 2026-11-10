@@ -21,7 +21,11 @@ function buildBlueprintData(overrides = {}) {
 }
 
 async function waitForRuntimeReady(page) {
-  await expect(page.locator("#address-input")).toBeEnabled();
+  // A clean boot extracts the core and runs `occ maintenance:install`; with
+  // Nextcloud 35 that takes ~35 s locally, past the 30 s default expect timeout.
+  await expect(page.locator("#address-input")).toBeEnabled({
+    timeout: 120_000,
+  });
   await expect(page.locator("#site-frame")).toHaveAttribute("src", /scope=/);
   await expect(page.locator("#runtime-id-value")).not.toHaveText("-");
 }

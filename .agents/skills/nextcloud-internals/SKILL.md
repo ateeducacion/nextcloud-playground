@@ -121,7 +121,7 @@ Default-enabled core set worth keeping for a usable demo: `files`, `dav`,
 
 The CLI/config-lock/owner-check patches are SAPI-gated. The avatar fallback
 is guarded by the failed font operation itself. They are applied at build time
-by `scripts/build-nextcloud-bundle.sh`; check that script for the exact gates. The posix polyfill is applied at runtime via
+by `scripts/apply-wasm-patches.sh` (called from `scripts/build-nextcloud-bundle.sh`); check that script for the exact gates. The posix polyfill is applied at runtime via
 `auto_prepend_file`.
 
 ### 0. posix polyfill (`auto_prepend_file`)
@@ -147,11 +147,12 @@ clobbers a real posix build.
 
 | # | File:line | Original | Patch | Why |
 |---|---|---|---|---|
-| 1 | `lib/base.php:610` | `self::$CLI = (php_sapi_name() == 'cli');` | `… \|\| (PHP_SAPI === 'wasm' && empty($_SERVER['REQUEST_URI']))` | SAPI is `wasm`. occ (no `REQUEST_URI`) is treated as CLI; web requests (with `REQUEST_URI`) are not. This is why the occ wrapper must `unset($_SERVER['REQUEST_URI'])`. |
+| 1 | `lib/base.php:610` (`lib/OC.php` since NC 35, with `===`) | `self::$CLI = (php_sapi_name() == 'cli');` | `… \|\| (PHP_SAPI === 'wasm' && empty($_SERVER['REQUEST_URI']))` | SAPI is `wasm`. occ (no `REQUEST_URI`) is treated as CLI; web requests (with `REQUEST_URI`) are not. This is why the occ wrapper must `unset($_SERVER['REQUEST_URI'])`. |
 | 2 | `lib/private/Config.php:204` | `if (!flock($fp, LOCK_SH)) {` | `if (!flock($fp, LOCK_SH) && PHP_SAPI !== 'wasm') {` | `flock` is unreliable under Emscripten; the shared lock on `config.php` returns false and would fatal on read. |
 | 3 | `lib/private/Config.php:285` | `if (!flock($fp, LOCK_EX)) {` | `… && PHP_SAPI !== 'wasm') {` | Same, for the config **write** path. |
 | 4 | `console.php:50` | `if ($user !== $configUser) {` | `… && PHP_SAPI !== 'wasm') {` | occ refuses to run when `posix_getuid()` (33) ≠ the config.php file owner; that ownership check is meaningless in the sandbox. |
 | 5 | `lib/private/Avatar/Avatar.php:194` | (after `imagettfbbox(...)`) | `if (!is_array($box)) { return [0, (int)$size]; }` | php-wasm GD/FreeType cannot parse the bundled 8.7 MB `NotoSans-Regular.ttf`; `imagettfbbox` returns `false` → `abs(null)` TypeError during letter-avatar generation (triggered by `--admin-email` and in the UI). The guard falls back to a solid-colour avatar. |
+| 6 | `lib/private/Security/Hasher.php` (NC >= 35) | `PASSWORD_ARGON2ID => 3,` / `PASSWORD_ARGON2I => 2,` in `hash()`'s `match` | `'argon2id' => 3,` / `'argon2i' => 2,` | php-wasm has no argon2, so the constants are undefined and `occ maintenance:install` dies hashing the admin password. The literals are the constants' values, so real servers are unaffected. |
 
 When you touch the Nextcloud source or the build pipeline, preserve the current
 WASM-specific gates and failed-font guard. Widening the gate (e.g. dropping the
